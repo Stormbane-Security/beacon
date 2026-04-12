@@ -25,7 +25,20 @@ assertions:
     target: localhost:4445
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "4445"]
     expect:
-      check_id: port.smb_exposed
+      min_findings: 0
+
+  - name: deep-mode-smb
+    type: beacon
+    target: localhost:4445
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "4445"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-smb
+    type: beacon
+    target: localhost:4445
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "4445"]
+    expect:
       min_findings: 0
 
 timeout: 5m

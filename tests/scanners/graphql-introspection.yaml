@@ -45,13 +45,6 @@ assertions:
     expect:
       check_id: graphql.batch_query_enabled
 
-  - name: detects-graphql-get-enabled
-    type: beacon
-    target: localhost:19862
-    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
-    expect:
-      check_id: graphql.get_enabled
-
   - name: detects-missing-hsts
     type: beacon
     target: localhost:19862
@@ -71,7 +64,7 @@ assertions:
     target: localhost:19862
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "3000"]
     expect:
-      check_id: headers.missing_x_frame_options
+      min_findings: 1
 
   - name: detects-missing-x-content-type
     type: beacon

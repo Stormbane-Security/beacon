@@ -1,0 +1,42 @@
+name: debug-pprof-exposed
+description: "Go service with /debug/pprof/ endpoint exposed (common in Go apps with default mux)"
+tags: [exposure, debug, pprof, go]
+
+services:
+  goapp:
+    image: golang:1.22-alpine
+    ports: ["6060:6060"]
+    command: >
+      sh -c '
+        cat > /tmp/main.go << GOEOF
+        package main
+        import (
+          "fmt"
+          "net/http"
+          _ "net/http/pprof"
+        )
+        func main() {
+          http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+            fmt.Fprintf(w, "ok")
+          })
+          http.ListenAndServe(":6060", nil)
+        }
+      GOEOF
+        go run /tmp/main.go
+      '
+
+ready:
+  cmd: "curl -sf http://localhost:6060/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-pprof-exposed
+    type: beacon
+    target: localhost:6060
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "6060", "--verbose"]
+    expect:
+      min_findings: 1
+      has_check_id: "exposure.monitoring_panel"
+
+timeout: 5m

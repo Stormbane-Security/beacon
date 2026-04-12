@@ -68,15 +68,15 @@ func TestRenderBounty_ContainsImpactSection(t *testing.T) {
 	}
 }
 
-func TestRenderBounty_ContainsAffectedComponent(t *testing.T) {
+func TestRenderBounty_ContainsAffectedAsset(t *testing.T) {
 	ef := enrichedWith(finding.SeverityHigh, "Open Redirect", "target.com")
 	ef.Finding.Evidence = map[string]any{"url": "https://target.com/redirect?to=evil.com"}
 	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
-	if !strings.Contains(out, "## Affected Component") {
-		t.Error("expected affected component section")
+	if !strings.Contains(out, "## Affected Asset") {
+		t.Error("expected affected asset section")
 	}
 	if !strings.Contains(out, "target.com/redirect") {
-		t.Error("expected endpoint URL in affected component")
+		t.Error("expected endpoint URL in affected asset")
 	}
 }
 
@@ -101,7 +101,7 @@ func TestRenderBounty_FindingsOrderedBySeverity(t *testing.T) {
 	highIdx := strings.Index(out, "High Bug")
 	medIdx := strings.Index(out, "Medium Bug")
 	if critIdx > highIdx || highIdx > medIdx {
-		t.Error("findings should be ordered: critical → high → medium")
+		t.Error("findings should be ordered: critical -> high -> medium")
 	}
 }
 
@@ -125,5 +125,83 @@ func TestRenderBounty_EvidenceExcludesBase64(t *testing.T) {
 	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
 	if strings.Contains(out, "very_long_base64") {
 		t.Error("base64 screenshot data should NOT appear in bounty report")
+	}
+}
+
+func TestRenderBounty_SeverityInTitle(t *testing.T) {
+	ef := enrichedWith(finding.SeverityCritical, "RCE via Deserialization", "target.com")
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "# [CRITICAL] RCE via Deserialization") {
+		t.Error("expected [SEVERITY] prefix in finding title")
+	}
+}
+
+func TestRenderBounty_SeverityJustification(t *testing.T) {
+	ef := enrichedWith(finding.SeverityHigh, "SSRF", "target.com")
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "## Severity Justification") {
+		t.Error("expected severity justification section")
+	}
+	if !strings.Contains(out, "7.5") {
+		t.Error("expected CVSS score in severity justification")
+	}
+}
+
+func TestRenderBounty_ProofOfConceptSection(t *testing.T) {
+	ef := enrichedWith(finding.SeverityHigh, "XSS", "target.com")
+	ef.Finding.ProofCommand = "curl -s 'https://target.com/vuln'"
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "## Proof of Concept") {
+		t.Error("expected proof of concept section")
+	}
+}
+
+func TestRenderBounty_ReferencesForSQLi(t *testing.T) {
+	ef := enrichedWith(finding.SeverityCritical, "SQLi", "target.com")
+	ef.Finding.CheckID = "web.sqli"
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "## References") {
+		t.Error("expected references section for SQLi finding")
+	}
+	if !strings.Contains(out, "owasp.org") {
+		t.Error("expected OWASP reference for SQLi")
+	}
+}
+
+func TestRenderBounty_RemediationSection(t *testing.T) {
+	ef := enrichedWith(finding.SeverityCritical, "SQLi", "target.com")
+	ef.Finding.CheckID = "web.sqli"
+	ef.Remediation = ""
+	ef.TechSpecificRemediation = ""
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "## Remediation") {
+		t.Error("expected remediation section")
+	}
+	if !strings.Contains(out, "parameterized") {
+		t.Error("expected SQLi-specific remediation advice")
+	}
+}
+
+func TestRenderBounty_SummarySection(t *testing.T) {
+	ef := enrichedWith(finding.SeverityHigh, "Open Redirect", "target.com")
+	ef.Explanation = "The target redirects to attacker-controlled URLs."
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "## Summary") {
+		t.Error("expected summary section")
+	}
+	if !strings.Contains(out, "attacker-controlled") {
+		t.Error("expected explanation text in summary")
+	}
+}
+
+func TestRenderBounty_ParameterExtraction(t *testing.T) {
+	ef := enrichedWith(finding.SeverityHigh, "XSS", "target.com")
+	ef.Finding.Evidence = map[string]any{
+		"url":       "https://target.com/search",
+		"parameter": "q",
+	}
+	out := RenderBounty(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, "**Parameter**: q") {
+		t.Error("expected parameter in affected asset section")
 	}
 }

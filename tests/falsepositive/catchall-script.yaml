@@ -1,0 +1,35 @@
+name: catchall-script-no-false-cves
+description: >
+  Server that returns a shell script (#!/bin/sh) for every path.
+  This must NOT produce CVE findings (Ivanti, MOVEit, SolarWinds, etc.)
+  even though the response is 200 + non-HTML. Catches the cli.nexus.xyz
+  false positive class.
+tags: [falsepositive, catchall, regression]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./catchall-script/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: no-cve-false-positives
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "exposure.env_file_exposed"
+  - name: no-spring-actuator-false-positive
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "exposure.spring_actuator"
+
+timeout: 5m

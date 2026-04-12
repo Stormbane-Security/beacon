@@ -13,7 +13,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:8888/realms/master/.well-known/openid-configuration >/dev/null"
-  timeout: 90s
+  timeout: 150s
   interval: 3s
 
 assertions:

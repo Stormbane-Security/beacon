@@ -1,0 +1,41 @@
+name: wordpress-outdated
+description: "WordPress 5.7 with known CVEs — should detect CMS, version, missing headers"
+tags: [vulnerable, wordpress, cms]
+
+services:
+  wordpress:
+    image: wordpress:6.4-apache
+    ports: ["80:80"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: rootpass
+      WORDPRESS_DB_NAME: wordpress
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null || curl -sf http://localhost:80/wp-login.php >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-wordpress
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 3
+
+  - name: finds-security-headers
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 3
+      has_check_id: "headers.missing_csp"
+
+timeout: 10m

@@ -30,7 +30,7 @@ type masscanPort struct {
 // Returns a list of "ip:port" strings for open ports found.
 // Only for CIDR targets, not single hosts. Returns nil if masscan is not
 // installed or the --no-masscan flag was used (masscanBin == "").
-func runMasscan(ctx context.Context, cidr string, ports string, masscanBin string) ([]string, error) {
+func RunMasscan(ctx context.Context, cidr string, ports string, masscanBin string) ([]string, error) {
 	if masscanBin == "" {
 		return nil, nil
 	}
@@ -51,14 +51,22 @@ func runMasscan(ctx context.Context, cidr string, ports string, masscanBin strin
 	outputFile := filepath.Join(os.TempDir(), fmt.Sprintf("masscan-%x.json", h[:8]))
 	defer func() { _ = os.Remove(outputFile) }()
 
-	args := []string{
+	masscanArgs := []string{
 		cidr,
 		"-p" + ports,
 		"--rate=1000",
 		"-oJ", outputFile,
 	}
 
-	cmd := exec.CommandContext(ctx, binPath, args...)
+	// masscan needs raw sockets — try sudo first, fall back to direct.
+	var cmd *exec.Cmd
+	if os.Geteuid() != 0 {
+		// Not root — use sudo
+		sudoArgs := append([]string{binPath}, masscanArgs...)
+		cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
+	} else {
+		cmd = exec.CommandContext(ctx, binPath, masscanArgs...)
+	}
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

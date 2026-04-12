@@ -100,6 +100,8 @@ func detectKubernetesAPI(ctx context.Context, host string, port int, banner stri
 	}
 	if k8sVer != "" {
 		ev["k8s_version"] = k8sVer
+		ev["version"] = k8sVer
+		ev["product"] = "Kubernetes " + k8sVer
 	}
 	if cloudProvider != "" {
 		ev["cloud_provider"] = cloudProvider
@@ -205,9 +207,23 @@ func orDefault(s, def string) string {
 func detectDockerDaemon(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Validate response contains Docker version JSON (e.g. "ApiVersion").
 	// Prevents false positives from SPAs that return HTML for any path.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/v1.24/version")
+	// Try unversioned path first (works on all Docker versions), then
+	// fall back to versioned path for older daemons.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/version")
 	if !ok || !strings.Contains(body, "ApiVersion") {
-		return nil
+		body, ok = probeHTTPBody(ctx, host, port, false, "/v1.24/version")
+		if !ok || !strings.Contains(body, "ApiVersion") {
+			return nil
+		}
+	}
+	ev := map[string]any{"port": port, "service": "docker", "authenticated": false, "banner": banner}
+	// Extract Docker engine version from the /version JSON response ({"Version":"24.0.7",...}).
+	if ver := parseJSONStringField(body, "Version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Docker " + ver
+	}
+	if apiVer := parseJSONStringField(body, "ApiVersion"); apiVer != "" {
+		ev["api_version"] = apiVer
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDockerUnauth,
@@ -215,7 +231,7 @@ func detectDockerDaemon(ctx context.Context, host string, port int, banner strin
 		fmt.Sprintf("Unauthenticated Docker daemon exposed on port %d", port),
 		"The Docker daemon API is reachable over plain TCP without TLS or authentication. "+
 			"A remote attacker can spawn privileged containers and gain full host control.",
-		map[string]any{"port": port, "service": "docker", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -225,13 +241,18 @@ func detectKubelet(ctx context.Context, host string, port int, banner string, ma
 	if !ok || !strings.Contains(body, "PodList") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "kubelet", "authenticated": false, "banner": banner}
+	// Extract kubelet version from the /pods response (e.g. "kubeletVersion":"v1.28.2").
+	if ver := parseJSONStringField(body, "kubeletVersion"); ver != "" {
+		ev["version"] = ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortKubeletUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated Kubelet API exposed on port %d", port),
 		"The Kubernetes Kubelet API is reachable without authentication. "+
 			"An attacker can enumerate running pods and execute commands inside containers.",
-		map[string]any{"port": port, "service": "kubelet", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -327,13 +348,32 @@ func detectMikroTikWinbox(ctx context.Context, host string, port int, banner str
 }
 
 func detectProxmox(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, true, "/api2/json/version")
+	// Try the root page first (no auth required) — contains "Proxmox Virtual Environment".
+	body, ok := probeHTTPBody(ctx, host, port, true, "/")
+	if !ok {
+		// Fall back to plain HTTP (Proxmox redirects HTTP→HTTPS but some setups differ).
+		body, ok = probeHTTPBody(ctx, host, port, false, "/")
+	}
 	if !ok {
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
-	if !strings.Contains(bodyLow, "version") || !strings.Contains(bodyLow, "release") {
+	if !strings.Contains(bodyLow, "proxmox") {
 		return nil
+	}
+	ev := map[string]any{"port": port, "service": "proxmox",
+		"url": fmt.Sprintf("https://%s:%d", host, port)}
+	// Extract PVE version from the login page body (data-version or pvemanagerversion).
+	if ver := parseJSONStringField(body, "pvemanagerversion"); ver != "" {
+		ev["version"] = ver
+	} else if idx := strings.Index(bodyLow, "data-version="); idx >= 0 {
+		rest := body[idx+len("data-version="):]
+		if len(rest) > 1 && rest[0] == '"' {
+			end := strings.IndexByte(rest[1:], '"')
+			if end > 0 && end < 30 {
+				ev["version"] = rest[1 : end+1]
+			}
+		}
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortProxmoxExposed,
@@ -345,8 +385,7 @@ func detectProxmox(ctx context.Context, host string, port int, banner string, ma
 			"passwords combined with internet exposure create critical infrastructure risk. "+
 			"Proxmox management should be restricted to dedicated management VLANs "+
 			"accessible only via VPN. Enable 2FA and change default credentials immediately.",
-		map[string]any{"port": port, "service": "proxmox",
-			"url": fmt.Sprintf("https://%s:%d", host, port)},
+		ev,
 	)}
 }
 

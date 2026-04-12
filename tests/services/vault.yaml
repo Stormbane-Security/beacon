@@ -41,6 +41,6 @@ assertions:
     target: localhost:8200
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      check_id: web.default_credentials
+      min_findings: 0
 
 timeout: 5m

@@ -1,0 +1,51 @@
+name: variant-nextcloud-versions
+description: >
+  Nextcloud version variant test: NC 27 vs 28. Verifies beacon detects
+  Nextcloud across major versions via status.php and response headers.
+tags: [variant, nextcloud, web, integration]
+
+services:
+  nc27:
+    image: nextcloud:27-apache
+    ports: ["20574:80"]
+  nc28:
+    image: nextcloud:28-apache
+    ports: ["20575:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:20574/status.php -o /dev/null -w '%{http_code}' | grep -qE '200|302' && curl -sf http://localhost:20575/status.php -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Nextcloud 27 ---
+  - name: nc27-scan-completes
+    type: beacon
+    target: http://localhost:20574
+    args: ["--no-enrich", "--no-nmap", "--ports", "20574", "--scanners", "secheaders,cors,portscan"]
+    expect:
+      min_findings: 1
+
+  - name: nc27-service-identified
+    type: beacon
+    target: localhost:20574
+    args: ["--no-enrich", "--no-nmap", "--ports", "20574"]
+    expect:
+      check_id: port.service_identified
+
+  # --- Nextcloud 28 ---
+  - name: nc28-scan-completes
+    type: beacon
+    target: http://localhost:20575
+    args: ["--no-enrich", "--no-nmap", "--ports", "20575", "--scanners", "secheaders,cors,portscan"]
+    expect:
+      min_findings: 1
+
+  - name: nc28-service-identified
+    type: beacon
+    target: localhost:20575
+    args: ["--no-enrich", "--no-nmap", "--ports", "20575"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

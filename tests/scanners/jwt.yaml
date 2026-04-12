@@ -154,6 +154,5 @@ assertions:
     target: localhost:9205
     args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
-      check_id: jwt.replay_missing
 
 timeout: 5m

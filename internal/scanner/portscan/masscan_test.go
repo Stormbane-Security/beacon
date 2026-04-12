@@ -10,7 +10,7 @@ import (
 
 func TestRunMasscan_SkipsWhenBinEmpty(t *testing.T) {
 	t.Parallel()
-	results, err := runMasscan(context.Background(), "10.0.0.0/24", "80,443", "")
+	results, err := RunMasscan(context.Background(), "10.0.0.0/24", "80,443", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestRunMasscan_SkipsWhenBinEmpty(t *testing.T) {
 
 func TestRunMasscan_SkipsWhenBinNotFound(t *testing.T) {
 	t.Parallel()
-	results, err := runMasscan(context.Background(), "10.0.0.0/24", "80,443", "masscan-nonexistent-binary-12345")
+	results, err := RunMasscan(context.Background(), "10.0.0.0/24", "80,443", "masscan-nonexistent-binary-12345")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestRunMasscan_SkipsWhenBinNotFound(t *testing.T) {
 func TestRunMasscan_SkipsSingleHost(t *testing.T) {
 	t.Parallel()
 	// masscan integration is only for CIDR notation, not single hosts.
-	results, err := runMasscan(context.Background(), "10.0.0.1", "80,443", "masscan")
+	results, err := RunMasscan(context.Background(), "10.0.0.1", "80,443", "masscan")
 	if err != nil {
 		t.Fatal(err)
 	}

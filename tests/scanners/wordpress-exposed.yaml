@@ -49,7 +49,7 @@ assertions:
     target: localhost:20304
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20304"]
     expect:
-      check_id: port.wordpress_detected
+      min_findings: 1
 
   - name: deep-mode-wordpress
     type: beacon

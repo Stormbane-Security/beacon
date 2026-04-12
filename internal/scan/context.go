@@ -48,6 +48,12 @@ type ScanContext struct {
 	// responseCache is lazily initialized on first call to ResponseCache().
 	responseCacheOnce sync.Once
 	responseCache     *ResponseCache
+
+	// hostTimeouts tracks consecutive HTTP timeouts per host. When a host
+	// exceeds the threshold, remaining probes are skipped to avoid wasting
+	// minutes on unresponsive targets.
+	hostTimeoutOnce    sync.Once
+	hostTimeoutTracker *HostTimeoutTracker
 }
 
 // NewContext creates a ScanContext for the given asset and scan type.
@@ -201,4 +207,23 @@ func (sc *ScanContext) ResponseCache() *ResponseCache {
 		sc.responseCache = NewResponseCache(sc.SharedClient())
 	})
 	return sc.responseCache
+}
+
+// HostTimeouts returns the per-scan host timeout tracker (lazily initialized).
+// Scanners and transport layers use this to bail early on hosts that are
+// consistently timing out, avoiding minutes of wasted probes.
+func (sc *ScanContext) HostTimeouts() *HostTimeoutTracker {
+	sc.hostTimeoutOnce.Do(func() {
+		sc.hostTimeoutTracker = NewHostTimeoutTracker()
+	})
+	return sc.hostTimeoutTracker
+}
+
+// WithHostTimeoutTracker injects an externally-created tracker. Used when
+// the tracker needs to be shared across scan contexts (e.g., across Phase A
+// and Phase B of the same asset).
+func (sc *ScanContext) WithHostTimeoutTracker(t *HostTimeoutTracker) *ScanContext {
+	sc.hostTimeoutTracker = t
+	sc.hostTimeoutOnce.Do(func() {}) // mark as initialized
+	return sc
 }

@@ -1,0 +1,67 @@
+name: variant-mongo-versions
+description: >
+  MongoDB version variant test: Mongo 5 vs 7. Both run without auth
+  to verify beacon detects database_exposed across major versions.
+tags: [variant, mongodb, database, portscan, integration]
+
+services:
+  mongo5:
+    image: mongo:5
+    ports: ["20504:27017"]
+    command: ["mongod", "--bind_ip_all"]
+  mongo7:
+    image: mongo:7
+    ports: ["20505:27017"]
+    command: ["mongod", "--bind_ip_all"]
+
+ready:
+  cmd: "nc -zw2 localhost 20504 && nc -zw2 localhost 20505 && sleep 5"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  # --- MongoDB 5 ---
+  - name: mongo5-detected
+    type: beacon
+    target: localhost:20504
+    args: ["--no-enrich", "--no-nmap", "--ports", "20504"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: mongo5-surface-mode
+    type: beacon
+    target: localhost:20504
+    args: ["--no-enrich", "--no-nmap", "--ports", "20504"]
+    expect:
+      min_findings: 1
+
+  - name: mongo5-exploit-mode
+    type: beacon
+    target: localhost:20504
+    args: ["--no-enrich", "--no-nmap", "--ports", "20504", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # --- MongoDB 7 ---
+  - name: mongo7-detected
+    type: beacon
+    target: localhost:20505
+    args: ["--no-enrich", "--no-nmap", "--ports", "20505"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: mongo7-surface-mode
+    type: beacon
+    target: localhost:20505
+    args: ["--no-enrich", "--no-nmap", "--ports", "20505"]
+    expect:
+      min_findings: 1
+
+  - name: mongo7-exploit-mode
+    type: beacon
+    target: localhost:20505
+    args: ["--no-enrich", "--no-nmap", "--ports", "20505", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

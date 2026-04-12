@@ -1,0 +1,1 @@
+{"version":3,"sources":["src/main.ts"],"names":["console","log"],"mappings":"AAAA,OAAO,CAAC,GAAG","file":"main.js","sourceRoot":"","sourcesContent":["console.log(\"app\");\n"]}

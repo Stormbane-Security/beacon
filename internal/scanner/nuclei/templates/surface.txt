@@ -33,11 +33,13 @@ swagger-ui
 graphql-introspection
 openapi
 grafana-unauth
+grafana-path-traversal
 prometheus-metrics
 kibana-unauth
 jupyter-unauth
 jenkins-unauth
 spring-actuator
+spring-env
 dotenv-file
 laravel-env
 backup-files
@@ -48,6 +50,28 @@ robots-txt-endpoint
 cors-misconfig
 s3-bucket-listing
 aws-bucket-service
+
+# Service Exposure (passive — no creds needed)
+elasticsearch
+couchdb-unauth
+mongodb-unauth
+redis-unauth
+memcached-stats
+docker-registry
+consul-service-api
+vault-detect
+rabbitmq-dashboard
+sonarqube-public
+portainer-init
+traefik-dashboard
+etcd-unauthenticated
+minio-health-check
+nats-monitoring
+gitea-detect
+harbor-detect
+airflow-detect
+argocd-detect
+phpmyadmin-detect
 
 # Subdomain Takeover (72 service-specific templates)
 subdomain-takeover

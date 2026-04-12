@@ -3,10 +3,15 @@ package portscan
 import (
 	"context"
 	"fmt"
-	"strings"
-	"time"
+	"log"
 	"net"
+	"runtime/debug"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
@@ -62,6 +67,55 @@ type ServiceProbe struct {
 // this list for every open port.
 var probeRegistry []ServiceProbe
 
+// Pre-indexed probe slices by category. Built once by initProbeIndexes after
+// all init() registrations complete. Avoids iterating all 274 probes and
+// checking category on every port — instead, runProbes picks the right slice
+// directly.
+var (
+	indexedHTTPProbes     []ServiceProbe
+	indexedProtocolProbes []ServiceProbe
+	indexedBannerProbes   []ServiceProbe
+	indexedTLSProbes      []ServiceProbe
+	// Exploit-free variants for ScanSurface mode — probes whose name ends in
+	// "-exploit" are excluded, avoiding unnecessary checks.
+	indexedHTTPProbesSurface     []ServiceProbe
+	indexedProtocolProbesSurface []ServiceProbe
+	indexedBannerProbesSurface   []ServiceProbe
+	indexedTLSProbesSurface      []ServiceProbe
+	probeIndexOnce               sync.Once
+)
+
+// initProbeIndexes partitions probeRegistry into per-category slices.
+// Called lazily on first use (after all init() registrations).
+func initProbeIndexes() {
+	probeIndexOnce.Do(func() {
+		for _, p := range probeRegistry {
+			switch p.Category {
+			case ProbeCatHTTP:
+				indexedHTTPProbes = append(indexedHTTPProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedHTTPProbesSurface = append(indexedHTTPProbesSurface, p)
+				}
+			case ProbeCatProtocol:
+				indexedProtocolProbes = append(indexedProtocolProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedProtocolProbesSurface = append(indexedProtocolProbesSurface, p)
+				}
+			case ProbeCatBanner:
+				indexedBannerProbes = append(indexedBannerProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedBannerProbesSurface = append(indexedBannerProbesSurface, p)
+				}
+			case ProbeCatTLS:
+				indexedTLSProbes = append(indexedTLSProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedTLSProbesSurface = append(indexedTLSProbesSurface, p)
+				}
+			}
+		}
+	})
+}
+
 // registerProbe adds a probe to the global registry. Called from init()
 // functions in probe implementation files.
 func registerProbe(p ServiceProbe) {
@@ -110,12 +164,33 @@ func isMySQLGreeting(banner string) bool {
 	return b[3] == 0x00 && b[4] == 0x0a
 }
 
+// scanTypeFromContext retrieves the scan type stored by withScanType.
+// Returns ScanSurface if not set.
+func scanTypeFromContext(ctx context.Context) module.ScanType {
+	if st, ok := ctx.Value(scanTypeKey).(module.ScanType); ok {
+		return st
+	}
+	return module.ScanSurface
+}
+
 // runProbes iterates all registered probes against an open port and returns
-// the combined findings. Pre-filters by category to avoid pointless work.
+// the combined findings. Uses pre-indexed category slices to avoid iterating
+// all 274 probes on every port.
 func runProbes(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Ensure category indexes are built (once, after all init() registrations).
+	initProbeIndexes()
+
+	sl := scanlog.FromContext(ctx)
+
 	bannerHTTP := looksLikeHTTP(banner)
 	hasBanner := banner != ""
 	bannerProto := bannerProtocol(banner)
+
+	sl.Debug("probe.port_start",
+		"host", host, "port", port,
+		"has_banner", hasBanner, "banner_http", bannerHTTP, "banner_proto", bannerProto,
+		"probe_count", len(probeRegistry),
+	)
 
 	// When no banner was received, the service might be HTTP (which doesn't
 	// send data until a request arrives) or a protocol service that waits for
@@ -124,11 +199,15 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	if !hasBanner {
 		if quickHTTPCheck(ctx, host, port) {
 			bannerHTTP = true
+			sl.Debug("probe.quick_check", "host", host, "port", port, "result", "http")
 		} else if proto := quickProtocolCheck(ctx, host, port); proto != "" {
 			// Identified a non-HTTP protocol via quick handshake (Redis PING,
 			// MySQL greeting, etc.). This prevents 100+ protocol probes from
 			// timing out against an already-identified service.
 			bannerProto = proto
+			sl.Debug("probe.quick_check", "host", host, "port", port, "result", proto)
+		} else {
+			sl.Debug("probe.quick_check", "host", host, "port", port, "result", "unknown")
 		}
 		// Either way, we now know something about the port. Enable pre-filtering
 		// so HTTP probes are skipped on non-HTTP ports (and vice versa). Without
@@ -137,8 +216,13 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	}
 
 	// Check if port speaks TLS (cached — one handshake per host:port).
-	// TLS probes are skipped entirely on non-TLS ports, saving 5s+ per probe.
-	portIsTLS := isTLSCapable(ctx, host, port)
+	// Skip TLS check entirely for protocols known to be plaintext —
+	// saves 2s per non-TLS port (the TLS handshake timeout).
+	portIsTLS := false
+	knownPlaintext := bannerProto != "" && !strings.Contains(bannerProto, "http")
+	if !knownPlaintext {
+		portIsTLS = isTLSCapable(ctx, host, port)
+	}
 
 	// Capture JA3S fingerprint for TLS-enabled ports (uses cache, no extra handshake).
 	var ja3s *JA3SResult
@@ -146,30 +230,68 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		ja3s = JA3SFingerprint(ctx, host, port)
 	}
 
-	// Split probes into protocol (run in parallel) and non-protocol (run after).
-	var protocolProbes, otherProbes []ServiceProbe
-	for _, probe := range probeRegistry {
-		// Skip TLS probes on non-TLS ports — avoids 5s handshake timeout per probe.
-		if probe.Category == ProbeCatTLS && !portIsTLS {
-			continue
-		}
-		if hasBanner {
-			if probe.Category == ProbeCatHTTP && !bannerHTTP {
-				continue
-			}
-			if probe.Category == ProbeCatProtocol && bannerHTTP {
-				continue
-			}
-			if probe.Category == ProbeCatProtocol && bannerProto != "" && !strings.Contains(probe.Name, bannerProto) {
-				continue
-			}
-		}
-		if probe.Category == ProbeCatProtocol {
-			protocolProbes = append(protocolProbes, probe)
-		} else {
-			otherProbes = append(otherProbes, probe)
-		}
+	// Select the right pre-indexed probe slices based on scan type.
+	// ScanSurface uses the exploit-free variants (probes ending in "-exploit"
+	// are excluded at index time), avoiding unnecessary checks.
+	isSurface := scanTypeFromContext(ctx) == module.ScanSurface
+	pickHTTP := indexedHTTPProbes
+	pickProtocol := indexedProtocolProbes
+	pickBanner := indexedBannerProbes
+	pickTLS := indexedTLSProbes
+	if isSurface {
+		pickHTTP = indexedHTTPProbesSurface
+		pickProtocol = indexedProtocolProbesSurface
+		pickBanner = indexedBannerProbesSurface
+		pickTLS = indexedTLSProbesSurface
 	}
+
+	// Build the probe lists from pre-indexed category slices instead of
+	// iterating all 274 probes. Only include categories relevant to what
+	// the banner/quick-check tells us about this port.
+	var selectedProtocol, selectedOther []ServiceProbe
+	skippedCount := 0
+
+	// Protocol probes: skip if banner indicates HTTP.
+	if !hasBanner || !bannerHTTP {
+		if bannerProto != "" {
+			// Banner identified a specific protocol — only run matching probes.
+			for _, p := range pickProtocol {
+				if strings.Contains(p.Name, bannerProto) {
+					selectedProtocol = append(selectedProtocol, p)
+				} else {
+					sl.ProbeSkipped(p.Name, port, fmt.Sprintf("banner identifies %s — probe name mismatch", bannerProto))
+					skippedCount++
+				}
+			}
+		} else {
+			selectedProtocol = pickProtocol
+		}
+	} else {
+		skippedCount += len(pickProtocol)
+	}
+
+	// HTTP probes: skip if banner indicates a non-HTTP protocol.
+	if !hasBanner || bannerHTTP {
+		selectedOther = append(selectedOther, pickHTTP...)
+	} else {
+		skippedCount += len(pickHTTP)
+	}
+
+	// Banner probes always run (they just inspect the passive banner).
+	selectedOther = append(selectedOther, pickBanner...)
+
+	// TLS probes: skip on non-TLS ports.
+	if portIsTLS {
+		selectedOther = append(selectedOther, pickTLS...)
+	} else {
+		skippedCount += len(pickTLS)
+	}
+
+	sl.Debug("probe.filter_summary",
+		"host", host, "port", port,
+		"protocol_probes", len(selectedProtocol), "other_probes", len(selectedOther),
+		"skipped", skippedCount,
+	)
 
 	var findings []finding.Finding
 	identified := false
@@ -179,7 +301,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	// so once any probe identifies it, cancel the rest via context.
 	// Limit concurrency to avoid tripping IDS port-scan signatures.
 	const maxProbeParallel = 5
-	if len(protocolProbes) > 0 {
+	if len(selectedProtocol) > 0 {
 		type probeResult struct {
 			probe    ServiceProbe
 			findings []finding.Finding
@@ -187,10 +309,17 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		// Cancel remaining probes once one identifies the service.
 		probeCtx, probeCancel := context.WithCancel(ctx)
 		defer probeCancel()
-		resultCh := make(chan probeResult, len(protocolProbes))
+		resultCh := make(chan probeResult, len(selectedProtocol))
 		sem := make(chan struct{}, maxProbeParallel)
-		for _, p := range protocolProbes {
+		for _, p := range selectedProtocol {
 			go func(probe ServiceProbe) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("beacon: probe %s panic on %s:%d (recovered): %v", probe.Name, host, port, r)
+						debug.PrintStack()
+						resultCh <- probeResult{probe: probe}
+					}
+				}()
 				select {
 				case sem <- struct{}{}:
 					defer func() { <-sem }()
@@ -204,12 +333,16 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				resultCh <- probeResult{probe: probe, findings: fs}
 			}(p)
 		}
-		for range protocolProbes {
+		for range selectedProtocol {
 			pr := <-resultCh
 			if len(pr.findings) > 0 {
 				findings = append(findings, pr.findings...)
 				if !identified {
 					identified = true
+					sl.Debug("probe.service_identified",
+						"host", host, "port", port,
+						"probe", pr.probe.Name, "finding_count", len(pr.findings),
+					)
 					probeCancel() // cancel remaining protocol probes
 					service := pr.probe.Name
 					version := ""
@@ -257,7 +390,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	if identified {
 		identifiedService = "protocol-probe" // protocol probes already found something
 	}
-	for _, probe := range otherProbes {
+	for _, probe := range selectedOther {
 		// Skip relational DB probes if service was already identified
 		// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB/Redis)
 		if identifiedService != "" && probe.Name == "mysql-postgres-mssql-oracle" {
@@ -303,7 +436,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				}
 				// For HTTP-category probes, enrich with Server header and page title.
 				if probe.Category == ProbeCatHTTP {
-					enrichHTTPEvidence(ctx, host, port, ev)
+					enrichHTTPEvidence(ctx, host, port, portIsTLS, ev)
 				}
 				title := fmt.Sprintf("%s identified on port %d", service, port)
 				if version != "" {
@@ -335,7 +468,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			ev["banner"] = banner
 		}
 		// Extract HTTP title and Server header version for the fallback HTTP finding.
-		enrichHTTPEvidence(ctx, host, port, ev)
+		enrichHTTPEvidence(ctx, host, port, portIsTLS, ev)
 		findings = append(findings, makeF(
 			finding.CheckPortServiceIdentified,
 			finding.SeverityInfo,
@@ -402,6 +535,61 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		}
 	}
 
+	// Post-probe pass: check extracted service versions against the built-in
+	// CVE version database. This catches known-vulnerable versions without
+	// needing nuclei or nmap NSE scripts.
+	preCVECount := len(findings)
+	findings = appendVersionCVEs(ctx, findings, makeF)
+
+	sl.Debug("probe.port_complete",
+		"host", host, "port", port,
+		"total_findings", len(findings),
+		"cve_findings_added", len(findings)-preCVECount,
+		"service_identified", identified,
+	)
+
+	return findings
+}
+
+// appendVersionCVEs scans existing findings for service+version evidence and
+// runs the CVE version-range checker against each. Deduplicates against CVE
+// findings already present in the list (e.g. from active probes).
+func appendVersionCVEs(ctx context.Context, findings []finding.Finding, makeF findingMaker) []finding.Finding {
+	// Collect CheckIDs already emitted so we don't duplicate active probe results.
+	existing := make(map[finding.CheckID]bool, len(findings))
+	for _, f := range findings {
+		existing[f.CheckID] = true
+	}
+
+	for _, f := range findings {
+		if f.Evidence == nil {
+			continue
+		}
+		svc, _ := f.Evidence["service"].(string)
+		ver, _ := f.Evidence["version"].(string)
+		if svc == "" || ver == "" {
+			continue
+		}
+		cveFindings := CheckVersionCVEsCtx(ctx, svc, ver, makeF)
+		for _, cf := range cveFindings {
+			if !existing[cf.CheckID] {
+				existing[cf.CheckID] = true
+				findings = append(findings, cf)
+			}
+		}
+		// Also check server_product + server_version (HTTP enrichment).
+		sp, _ := f.Evidence["server_product"].(string)
+		sv, _ := f.Evidence["server_version"].(string)
+		if sp != "" && sv != "" && (sp != svc || sv != ver) {
+			cveFindings2 := CheckVersionCVEsCtx(ctx, sp, sv, makeF)
+			for _, cf := range cveFindings2 {
+				if !existing[cf.CheckID] {
+					existing[cf.CheckID] = true
+					findings = append(findings, cf)
+				}
+			}
+		}
+	}
 	return findings
 }
 
@@ -413,6 +601,11 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 func quickProtocolCheck(ctx context.Context, host string, port int) string {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	const quickTimeout = 1500 * time.Millisecond
+	// Use a cancellable context so remaining goroutines abort as soon as
+	// one identifies the protocol — avoids holding 5 TCP connections open
+	// until timeout when the first goroutine already answered.
+	qctx, cancel := context.WithTimeout(ctx, quickTimeout)
+	defer cancel()
 	dialer := &net.Dialer{Timeout: quickTimeout}
 
 	type checkResult struct {
@@ -422,7 +615,12 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// Redis: send PING, expect +PONG
 	go func() {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -442,7 +640,12 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// MySQL: connect and read greeting packet (server sends it first)
 	go func() {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -460,7 +663,12 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// PostgreSQL: send SSLRequest, check for 'N' or 'S' response
 	go func() {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -479,7 +687,12 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// SMTP: wait for 220 banner
 	go func() {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -497,7 +710,12 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// MongoDB: send isMaster command, check for valid BSON response
 	go func() {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -553,7 +771,12 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// SSH: wait for "SSH-" banner (some SSH servers are slow to send)
 	go func() {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -569,7 +792,8 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 		ch <- checkResult{}
 	}()
 
-	// Collect results — return first positive match, or "" after all finish
+	// Collect results — return first positive match, or "" after all finish.
+	// cancel() fires on return, aborting in-flight dials in remaining goroutines.
 	for i := 0; i < 6; i++ {
 		r := <-ch
 		if r.proto != "" {

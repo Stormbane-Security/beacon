@@ -158,6 +158,11 @@ func detectSSH(ctx context.Context, host string, port int, banner string, makeF 
 	if sv != "" {
 		ev["ssh_software"] = sv
 	}
+	// Extract structured version for CVE matching.
+	if product, ver := ExtractSSHVersion(banner); ver != "" {
+		ev["version"] = ver
+		ev["product"] = product + " " + ver
+	}
 	// Vendor detection via SSH banner.
 	var netDevFindings []finding.Finding
 	lsv := strings.ToLower(sv + " " + banner)
@@ -307,6 +312,11 @@ func detectFTP(ctx context.Context, host string, port int, banner string, makeF 
 	if fv != "" {
 		ev["ftp_software"] = fv
 	}
+	// Extract structured version for CVE matching.
+	if product, ver := ExtractFTPVersion(banner); ver != "" {
+		ev["version"] = ver
+		ev["product"] = product + " " + ver
+	}
 	// CVE-2011-2523: vsftpd 2.3.4 supply-chain backdoor.
 	if fv == "vsFTPd 2.3.4" {
 		return []finding.Finding{makeF(
@@ -351,22 +361,54 @@ func detectFTP(ctx context.Context, host string, port int, banner string, makeF 
 			)}
 		}
 	}
-	// Active check: attempt anonymous FTP login.
-	if probeFTPAnonymous(ctx, host, port) {
-		evAnon := map[string]any{"port": port, "service": "ftp", "anonymous_login": true, "banner": banner}
-		if fv != "" {
-			evAnon["ftp_software"] = fv
+
+	// Enhanced FTP probe: FEAT enumeration + anonymous check in single connection.
+	ftpInfo := probeFTPDetails(ctx, host, port)
+	if ftpInfo != nil {
+		if ftpInfo.Software != "" && fv == "" {
+			fv = ftpInfo.Software
+			ev["ftp_software"] = fv
 		}
-		return []finding.Finding{makeF(
-			finding.CheckPortFTPAnonymous,
-			finding.SeverityHigh,
-			fmt.Sprintf("FTP anonymous login accepted on port %d", port),
-			"The FTP server permits anonymous access (USER anonymous / PASS anonymous). "+
-				"An unauthenticated attacker can list directories and potentially read or write files. "+
-				"FTP anonymous login is often enabled for public file distribution but is frequently "+
-				"misconfigured to expose internal files. Disable anonymous access or restrict write permissions.",
-			evAnon,
-		)}
+		if len(ftpInfo.Features) > 0 {
+			ev["ftp_features"] = strings.Join(ftpInfo.Features, ", ")
+		}
+		if ftpInfo.Anonymous {
+			evAnon := map[string]any{"port": port, "service": "ftp", "anonymous_login": true, "banner": banner}
+			if fv != "" {
+				evAnon["ftp_software"] = fv
+			}
+			if len(ftpInfo.Features) > 0 {
+				evAnon["ftp_features"] = strings.Join(ftpInfo.Features, ", ")
+			}
+			return []finding.Finding{makeF(
+				finding.CheckPortFTPAnonymous,
+				finding.SeverityHigh,
+				fmt.Sprintf("FTP anonymous login accepted on port %d", port),
+				"The FTP server permits anonymous access (USER anonymous / PASS anonymous). "+
+					"An unauthenticated attacker can list directories and potentially read or write files. "+
+					"FTP anonymous login is often enabled for public file distribution but is frequently "+
+					"misconfigured to expose internal files. Disable anonymous access or restrict write permissions.",
+				evAnon,
+			)}
+		}
+	} else {
+		// Fallback: legacy anonymous check.
+		if probeFTPAnonymous(ctx, host, port) {
+			evAnon := map[string]any{"port": port, "service": "ftp", "anonymous_login": true, "banner": banner}
+			if fv != "" {
+				evAnon["ftp_software"] = fv
+			}
+			return []finding.Finding{makeF(
+				finding.CheckPortFTPAnonymous,
+				finding.SeverityHigh,
+				fmt.Sprintf("FTP anonymous login accepted on port %d", port),
+				"The FTP server permits anonymous access (USER anonymous / PASS anonymous). "+
+					"An unauthenticated attacker can list directories and potentially read or write files. "+
+					"FTP anonymous login is often enabled for public file distribution but is frequently "+
+					"misconfigured to expose internal files. Disable anonymous access or restrict write permissions.",
+				evAnon,
+			)}
+		}
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortFTPExposed,
@@ -518,12 +560,26 @@ func detectSMTP(ctx context.Context, host string, port int, banner string, makeF
 				"proof": fmt.Sprintf("telnet %s %d → EHLO test → MAIL FROM:<a@external1.com> → RCPT TO:<b@external2.com>", host, port)},
 		)}
 	}
+
+	// Enhanced EHLO probe: parse capabilities, software, VRFY/EXPN.
+	ehloInfo := probeSMTPEHLO(ctx, host, port)
+
 	// Banner grab parsing for software/version.
 	if banner != "" {
 		lbanner := strings.ToLower(banner)
 		if strings.Contains(lbanner, "exim") {
 			eximVer := parseEximVersion(banner)
 			ev := map[string]any{"port": port, "service": "smtp", "banner": banner, "exim_version": eximVer}
+			if ehloInfo != nil {
+				ev["starttls"] = ehloInfo.STARTTLS
+				ev["auth"] = ehloInfo.Auth
+				if len(ehloInfo.AuthMethods) > 0 {
+					ev["auth_methods"] = strings.Join(ehloInfo.AuthMethods, ", ")
+				}
+				if len(ehloInfo.Capabilities) > 0 {
+					ev["capabilities"] = strings.Join(ehloInfo.Capabilities, ", ")
+				}
+			}
 
 			// CVE-2018-6789: Exim < 4.90.1 base64d() off-by-one heap overflow → pre-auth RCE (KEV).
 			if eximVer != "" && isEximHeapOverflowVulnerable(eximVer) {
@@ -566,15 +622,81 @@ func detectSMTP(ctx context.Context, host string, port int, banner string, makeF
 				ev,
 			)}
 		}
-		return []finding.Finding{makeF(
+
+		// Build evidence with EHLO capabilities.
+		ev := map[string]any{"port": port, "service": "smtp", "banner": banner}
+		// Extract structured version for CVE matching.
+		if product, ver := ExtractSMTPVersion(banner); ver != "" {
+			ev["version"] = ver
+			ev["product"] = product + " " + ver
+		} else if product != "" {
+			ev["product"] = product
+		}
+		software := ""
+		if ehloInfo != nil {
+			software = ehloInfo.Software
+			ev["starttls"] = ehloInfo.STARTTLS
+			ev["auth"] = ehloInfo.Auth
+			if len(ehloInfo.AuthMethods) > 0 {
+				ev["auth_methods"] = strings.Join(ehloInfo.AuthMethods, ", ")
+			}
+			if ehloInfo.Size != "" {
+				ev["max_size"] = ehloInfo.Size
+			}
+			ev["8bitmime"] = ehloInfo.EightBitMIME
+			if len(ehloInfo.Capabilities) > 0 {
+				ev["capabilities"] = strings.Join(ehloInfo.Capabilities, ", ")
+			}
+			if software != "" {
+				ev["software"] = software
+			}
+		}
+
+		var smtpFindings []finding.Finding
+
+		// Check for VRFY/EXPN user enumeration.
+		if ehloInfo != nil && (ehloInfo.VRFY || ehloInfo.EXPN) {
+			vrfyEv := map[string]any{"port": port, "service": "smtp", "banner": banner}
+			if ehloInfo.VRFY {
+				vrfyEv["vrfy_enabled"] = true
+			}
+			if ehloInfo.EXPN {
+				vrfyEv["expn_enabled"] = true
+			}
+			cmds := []string{}
+			if ehloInfo.VRFY {
+				cmds = append(cmds, "VRFY")
+			}
+			if ehloInfo.EXPN {
+				cmds = append(cmds, "EXPN")
+			}
+			smtpFindings = append(smtpFindings, makeF(
+				finding.CheckPortSMTPVRFY,
+				finding.SeverityMedium,
+				fmt.Sprintf("SMTP %s command enabled on port %d — user enumeration risk", strings.Join(cmds, "/"), port),
+				fmt.Sprintf("The SMTP server accepts %s commands, which allow an attacker to verify whether "+
+					"specific email addresses exist on the server. This enables targeted phishing and brute-force "+
+					"attacks against confirmed valid accounts. Disable VRFY and EXPN in the MTA configuration.",
+					strings.Join(cmds, "/")),
+				vrfyEv,
+			))
+		}
+
+		desc := "An SMTP server is publicly accessible. "
+		if software != "" {
+			desc += fmt.Sprintf("MTA software: %s. ", software)
+		}
+		desc += "The banner may reveal internal hostnames, MTA software, and version. " +
+			"Internet-facing SMTP is expected for mail delivery (port 25) but should be version-hardened. " +
+			"Submission port 587 should require authentication (AUTH PLAIN/LOGIN over TLS only)."
+		smtpFindings = append(smtpFindings, makeF(
 			finding.CheckPortSMTPExposed,
 			finding.SeverityMedium,
 			fmt.Sprintf("SMTP server exposed on port %d", port),
-			"An SMTP server is publicly accessible. The banner may reveal internal hostnames, MTA software, and version. "+
-				"Internet-facing SMTP is expected for mail delivery (port 25) but should be version-hardened. "+
-				"Submission port 587 should require authentication (AUTH PLAIN/LOGIN over TLS only).",
-			map[string]any{"port": port, "service": "smtp", "banner": banner},
-		)}
+			desc,
+			ev,
+		))
+		return smtpFindings
 	}
 	return nil
 }

@@ -874,3 +874,396 @@ func TestMultipleChains(t *testing.T) {
 		t.Error("expected tls_session_hijack chain")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Chain 14: SSRF + cloud metadata + IAM signal → IAM escalation
+// ---------------------------------------------------------------------------
+
+func TestChain_SSRFCloudIAM(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckWebSSRF, Asset: "app.example.com", ProofCommand: "curl 'https://app.example.com/fetch?url=http://169.254.169.254/'"},
+		{CheckID: finding.CheckCloudMetadataSSRF, Asset: "app.example.com", ProofCommand: "curl http://169.254.169.254/latest/meta-data/"},
+		{CheckID: finding.CheckExposureCloudStorage, Asset: "s3.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationSSRFCloudIAMChain) {
+		t.Error("expected ssrf_cloud_iam_chain when SSRF + cloud metadata + IAM signal present")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationSSRFCloudIAMChain {
+			if f.Severity != finding.SeverityCritical {
+				t.Errorf("expected Critical severity, got %s", f.Severity)
+			}
+			if f.ChainDepth != 3 {
+				t.Errorf("expected ChainDepth 3, got %d", f.ChainDepth)
+			}
+		}
+	}
+}
+
+func TestChain_SSRFCloudIAM_NoMetadata_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckWebSSRF, Asset: "app.example.com"},
+		// Cloud bucket but no metadata SSRF — chain 14 requires CheckCloudMetadataSSRF.
+		{CheckID: finding.CheckCloudBucketPublic, Asset: "example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationSSRFCloudIAMChain) {
+		t.Error("should not emit ssrf_cloud_iam_chain without CheckCloudMetadataSSRF")
+	}
+}
+
+func TestChain_SSRFCloudIAM_SSRFAlone_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		// Only SSRF, no cloud metadata and no IAM signal — chain 14 should not fire.
+		{CheckID: finding.CheckWebSSRF, Asset: "app.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationSSRFCloudIAMChain) {
+		t.Error("should not emit ssrf_cloud_iam_chain with SSRF alone")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 15: Default creds + admin panel + RCE
+// ---------------------------------------------------------------------------
+
+func TestChain_DefaultCredsRCE(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckPortGrafanaDefaultCreds, Asset: "monitor.example.com", ProofCommand: "curl -u admin:admin https://monitor.example.com:3000"},
+		{CheckID: finding.CheckExposureAdminPath, Asset: "monitor.example.com", ProofCommand: "curl -sI https://monitor.example.com/admin"},
+		{CheckID: finding.CheckCVELog4Shell, Asset: "monitor.example.com", ProofCommand: "curl -H 'X-Api-Version: ${jndi:ldap://...}' https://monitor.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationDefaultCredsRCEChain) {
+		t.Error("expected default_creds_rce_chain when default creds + admin panel + RCE present")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationDefaultCredsRCEChain {
+			if f.Severity != finding.SeverityCritical {
+				t.Errorf("expected Critical severity, got %s", f.Severity)
+			}
+			if f.ChainDepth != 3 {
+				t.Errorf("expected ChainDepth 3, got %d", f.ChainDepth)
+			}
+		}
+	}
+}
+
+func TestChain_DefaultCredsRCE_MissingRCE_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckPortGrafanaDefaultCreds, Asset: "monitor.example.com"},
+		{CheckID: finding.CheckExposureAdminPath, Asset: "monitor.example.com"},
+		// No RCE finding.
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationDefaultCredsRCEChain) {
+		t.Error("should not emit default_creds_rce_chain without RCE finding")
+	}
+}
+
+func TestChain_DefaultCredsRCE_MissingAdmin_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckPortGrafanaDefaultCreds, Asset: "monitor.example.com"},
+		{CheckID: finding.CheckCVELog4Shell, Asset: "monitor.example.com"},
+		// No admin panel finding.
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationDefaultCredsRCEChain) {
+		t.Error("should not emit default_creds_rce_chain without admin panel finding")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 17: JWT weakness → auth bypass → data access
+// ---------------------------------------------------------------------------
+
+func TestChain_JWTAuthBypass(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckJWTAlgNoneVariant, Asset: "api.example.com", ProofCommand: "jwt_tool -t https://api.example.com -M at"},
+		{CheckID: finding.CheckExposureAdminPath, Asset: "api.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationJWTAuthBypassChain) {
+		t.Error("expected jwt_auth_bypass_chain when JWT alg:none + auth target present")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationJWTAuthBypassChain {
+			if f.Severity != finding.SeverityCritical {
+				t.Errorf("expected Critical severity, got %s", f.Severity)
+			}
+			weakness, _ := f.Evidence["jwt_weakness"].(string)
+			if weakness != "alg:none accepted" {
+				t.Errorf("expected jwt_weakness 'alg:none accepted', got %q", weakness)
+			}
+		}
+	}
+}
+
+func TestChain_JWTAuthBypass_NoAuthTarget_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckJWTWeakAlg, Asset: "api.example.com"},
+		// No auth/exposure/oauth finding to indicate data behind auth.
+		{CheckID: finding.CheckTLSProtocolTLS10, Asset: "api.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationJWTAuthBypassChain) {
+		t.Error("should not emit jwt_auth_bypass_chain without auth target signal")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 18: Open redirect → OAuth token theft
+// ---------------------------------------------------------------------------
+
+func TestChain_OpenRedirectOAuth(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckWebOpenRedirect, Asset: "app.example.com", ProofCommand: "curl -sI 'https://app.example.com/redir?url=http://evil.com'"},
+		{CheckID: finding.CheckOAuthOpenRedirect, Asset: "app.example.com", ProofCommand: "curl -sI 'https://app.example.com/oauth/authorize?redirect_uri=http://evil.com'"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationOpenRedirectOAuthChain) {
+		t.Error("expected open_redirect_oauth_chain when open redirect + OAuth present")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationOpenRedirectOAuthChain {
+			if f.Severity != finding.SeverityHigh {
+				t.Errorf("expected High severity, got %s", f.Severity)
+			}
+		}
+	}
+}
+
+func TestChain_OpenRedirectOAuth_NoOAuth_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckWebOpenRedirect, Asset: "app.example.com"},
+		// No oauth.* finding — only a generic auth finding, which chain 18 ignores.
+		{CheckID: finding.CheckAuthLoginFormDetected, Asset: "app.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationOpenRedirectOAuthChain) {
+		t.Error("should not emit open_redirect_oauth_chain without oauth.* finding")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 20: Weak TLS + auth service → credential interception
+// ---------------------------------------------------------------------------
+
+func TestChain_WeakTLSCredIntercept(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckTLSProtocolTLS10, Asset: "login.example.com", ProofCommand: "nmap --script ssl-enum-ciphers -p 443 login.example.com"},
+		{CheckID: finding.CheckAuthLoginFormDetected, Asset: "login.example.com", ProofCommand: "curl -s https://login.example.com/login"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationWeakTLSCredInterceptChain) {
+		t.Error("expected weak_tls_cred_intercept_chain when weak TLS + auth service present")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationWeakTLSCredInterceptChain {
+			if f.Severity != finding.SeverityHigh {
+				t.Errorf("expected High severity, got %s", f.Severity)
+			}
+			weakness, _ := f.Evidence["tls_weakness"].(string)
+			if weakness != "TLS 1.0 protocol support" {
+				t.Errorf("expected tls_weakness 'TLS 1.0 protocol support', got %q", weakness)
+			}
+		}
+	}
+}
+
+func TestChain_WeakTLSCredIntercept_NoAuth_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckTLSProtocolTLS10, Asset: "static.example.com"},
+		// No auth service signals.
+		{CheckID: finding.CheckCookieMissingSecure, Asset: "static.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationWeakTLSCredInterceptChain) {
+		t.Error("should not emit weak_tls_cred_intercept_chain without auth service signal")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 21: Container escape → host compromise
+// ---------------------------------------------------------------------------
+
+func TestChain_ContainerEscape(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckPortDockerUnauth, Asset: "docker.example.com", ProofCommand: "curl http://docker.example.com:2375/version"},
+		{CheckID: finding.CheckContainerDockerSocketExposed, Asset: "docker.example.com", ProofCommand: "curl http://docker.example.com:2375/containers/json"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationContainerEscapeChain) {
+		t.Error("expected container_escape_chain when Docker unauth + container socket exposed")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationContainerEscapeChain {
+			if f.Severity != finding.SeverityCritical {
+				t.Errorf("expected Critical severity, got %s", f.Severity)
+			}
+			if f.ChainDepth != 3 {
+				t.Errorf("expected ChainDepth 3, got %d", f.ChainDepth)
+			}
+		}
+	}
+}
+
+func TestChain_ContainerEscape_APIAlone_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckPortDockerUnauth, Asset: "docker.example.com"},
+		// No container.* finding to amplify.
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationContainerEscapeChain) {
+		t.Error("should not emit container_escape_chain without container finding")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 22: Email spoofing → phishing → credential harvest
+// ---------------------------------------------------------------------------
+
+func TestChain_EmailSpoofPhish(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckEmailDMARCMissing, Asset: "example.com", ProofCommand: "dig TXT _dmarc.example.com"},
+		{CheckID: finding.CheckEmailDKIMMissing, Asset: "example.com", ProofCommand: "dig TXT default._domainkey.example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationEmailSpoofPhishChain) {
+		t.Error("expected email_spoof_phish_chain when DMARC missing + DKIM missing")
+	}
+	for _, f := range results {
+		if f.CheckID == finding.CheckCorrelationEmailSpoofPhishChain {
+			if f.Severity != finding.SeverityHigh {
+				t.Errorf("expected High severity, got %s", f.Severity)
+			}
+			if f.ChainDepth != 3 {
+				t.Errorf("expected ChainDepth 3, got %d", f.ChainDepth)
+			}
+		}
+	}
+}
+
+func TestChain_EmailSpoofPhish_SPFSoftfailPlusDKIMWeak(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckEmailSPFSoftfail, Asset: "example.com"},
+		{CheckID: finding.CheckEmailDKIMWeakKey, Asset: "example.com"},
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(results, finding.CheckCorrelationEmailSpoofPhishChain) {
+		t.Error("expected email_spoof_phish_chain when SPF softfail + DKIM weak key")
+	}
+}
+
+func TestChain_EmailSpoofPhish_DMARCAlone_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckEmailDMARCMissing, Asset: "example.com"},
+		// No DKIM weakness — chain requires both legs.
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationEmailSpoofPhishChain) {
+		t.Error("should not emit email_spoof_phish_chain without DKIM weakness")
+	}
+}
+
+func TestChain_EmailSpoofPhish_DKIMAlone_NoFinding(t *testing.T) {
+	s := New()
+	s.SetFindings([]finding.Finding{
+		{CheckID: finding.CheckEmailDKIMMissing, Asset: "example.com"},
+		// No DMARC/SPF weakness — chain requires both legs.
+	})
+
+	results, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(results, finding.CheckCorrelationEmailSpoofPhishChain) {
+		t.Error("should not emit email_spoof_phish_chain without DMARC/SPF weakness")
+	}
+}

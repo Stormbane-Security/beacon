@@ -1,0 +1,107 @@
+name: blind-correlation-creds-lateral
+description: >
+  Blind scan variant of correlation-info-disclosure-lateral. Beacon is given
+  ONLY a port range — it does not know which services are running. It must
+  discover the nginx web server and unauthenticated Redis on its own through
+  banner grabbing and protocol probing, then fire credential-harvesting and
+  lateral-movement exploit chains.
+tags: [blind, correlation, lateral, redis, infodisclosure, chain, integration]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["20980:80"]
+    volumes:
+      - ./correlation-info-lateral/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./correlation-info-lateral/env.html:/usr/share/nginx/html/.env:ro
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20981:6379"]
+
+ready:
+  cmd: "curl -sf http://localhost:20980/health >/dev/null && redis-cli -h localhost -p 20981 PING 2>/dev/null | grep -q PONG"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: services are alive
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-web-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20980/health | grep -q ok"
+      exit_code: 0
+
+  - name: preflight-redis-responds
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20981 PING 2>/dev/null | grep -q PONG"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND SURFACE: beacon discovers services with no hints
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-discovers-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20980,20981"]
+    expect:
+      check_id: port.service_identified
+
+  - name: blind-discovers-redis-unauthenticated
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20980,20981"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND DEEP: correlation engine sees both services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-deep-correlation
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20980,20981", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND EXPLOIT: chains should fire against discovered services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-exploit-fires-chains
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20980,20981", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # MANUAL PROOF: lateral movement via credential harvesting
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-env-exposes-redis-url
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20980/.env | grep -q 'REDIS_URL=redis://'"
+      exit_code: 0
+
+  - name: exploit-lateral-redis-write
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20981 SET beacon:blind:proof 'lateral-via-blind-scan' | grep -q OK"
+      exit_code: 0
+
+  - name: exploit-lateral-redis-read
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20981 GET beacon:blind:proof | grep -q lateral-via-blind-scan"
+      exit_code: 0
+
+timeout: 5m

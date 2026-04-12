@@ -1,0 +1,25 @@
+name: insecure-cookies
+description: "Cookies set without Secure, HttpOnly, or SameSite flags"
+tags: [vulnerable, cookie, session]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./insecure-cookies/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-insecure-cookies
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+
+timeout: 5m

@@ -774,6 +774,12 @@ const (
 	CheckNmapMySQLNoPassword CheckID = "nmap.mysql_no_password"      // MySQL root with no password
 	CheckNmapIPMICipherZero  CheckID = "nmap.ipmi_cipher_zero"       // IPMI cipher 0 auth bypass
 
+	// Nmap — CVE-specific vulnerability detections (deep)
+	CheckCVESMBEternalBlue    CheckID = "cve.smb_eternalblue"       // CVE-2017-0144 EternalBlue SMB RCE (MS17-010)
+	CheckCVESMBMS08067        CheckID = "cve.smb_ms08_067"          // CVE-2008-4250 MS08-067 Conficker SMB RCE
+	CheckCVEOpenSSLHeartbleed CheckID = "cve.openssl_heartbleed"    // CVE-2014-0160 OpenSSL Heartbleed memory disclosure
+	CheckCVEBashShellshock    CheckID = "cve.bash_shellshock"       // CVE-2014-6271 Bash CGI Shellshock RCE
+
 	// External intelligence APIs (all optional — keys required)
 	CheckVirusTotalReputation CheckID = "intel.virustotal_reputation"
 	CheckCensysHostData       CheckID = "intel.censys_host"
@@ -1098,8 +1104,29 @@ const (
 	CheckWellKnownOIDC            CheckID = "wellknown.oidc_discovery"      // OIDC discovery document exposed — reveals auth infrastructure (info)
 	CheckWellKnownJWKS            CheckID = "wellknown.jwks_exposed"        // JWKS endpoint exposed — public key enumeration (info)
 
+	// ── Passive injection signals (surface-mode safe) ───────────────────
+	CheckWebParamReflected    CheckID = "web.param_reflected"      // URL parameter value reflected unescaped in HTML response — XSS candidate
+	CheckWebSQLErrorDisclosed CheckID = "web.sql_error_disclosed"  // SQL error message in response — injection point or error handling gap
+	CheckWebStackTrace        CheckID = "web.stack_trace_disclosed" // Application stack trace in response — debug mode or unhandled exception
+
+	// ── Attack chain correlation ─────────────────────────────────────────
+	CheckChainSessionHijack    CheckID = "chain.session_hijack"      // Missing HSTS + cookie without Secure flag = session hijack via SSL strip
+	CheckChainAccountTakeover  CheckID = "chain.account_takeover"    // Open redirect + OAuth misconfiguration = token theft
+	CheckChainDataExfil        CheckID = "chain.data_exfiltration"   // Reflected param + missing CSP = data exfiltration via XSS
+	CheckChainCVEResponseSplit CheckID = "chain.cve_response_split"  // Known CRLF CVE + missing CSP + cache = response splitting → cache poison / XSS
+
 	// ── New service exposure checks ──────────────────────────────────────
+	CheckExposureDirListing       CheckID = "exposure.directory_listing"    // Directory listing enabled — reveals file names, sizes, timestamps
+	CheckExposureAliasTraversal   CheckID = "exposure.alias_traversal"     // Nginx alias misconfiguration allows reading files outside web root
+
 	CheckPortCassandraExposed     CheckID = "port.cassandra_exposed"        // Cassandra CQL native transport exposed without auth (port 9042)
+	CheckPortCassandraNoAuth      CheckID = "port.cassandra_no_auth"        // Cassandra AllowAllAuthenticator — no authentication required
+	CheckPortMSSQLExposed         CheckID = "port.mssql_exposed"            // Microsoft SQL Server TDS prelogin responded — instance reachable
+	CheckPortSMTPVRFY             CheckID = "port.smtp_vrfy_enabled"        // SMTP VRFY/EXPN command accepted — user enumeration risk
+	CheckPortMagentoDetected      CheckID = "port.magento_detected"         // Magento ecommerce platform detected
+	CheckPortConfluenceDetected   CheckID = "port.confluence_detected"      // Atlassian Confluence detected with version
+	CheckPortJiraDetected         CheckID = "port.jira_detected"            // Atlassian Jira detected
+	CheckPortJiraUnauthAPI        CheckID = "port.jira_unauth_api"          // Jira REST API accessible without authentication
 
 	// ── Web framework / CMS / server fingerprinting ─────────────────────
 	CheckPortWordPressDetected     CheckID = "port.wordpress_detected"       // WordPress CMS detected via wp-login.php, wp-content, or wp-includes
@@ -1389,11 +1416,93 @@ const (
 	CheckCVEWPElementorRCE           CheckID = "cve.wp_elementor_builder_rce"     // CVE-2022-1329 WordPress Elementor Website Builder authenticated RCE (CVSS 8.8)
 	CheckCVEWPStarterTemplatesUpload CheckID = "cve.wp_starter_templates_upload"  // CVE-2022-3982 WordPress Starter Templates arbitrary file upload (CVSS 9.8)
 	CheckCVEWPRoyalStarterUpload     CheckID = "cve.wp_royal_starter_upload"      // CVE-2023-5360 WordPress Royal Starter Templates unauthenticated file upload (CVSS 9.8)
+	CheckCVEWPLiteSpeedPrivEsc       CheckID = "cve.wp_litespeed_cache_privesc"   // CVE-2024-28000 WordPress LiteSpeed Cache < 6.4 privilege escalation via weak hash (CVSS 9.8)
+	CheckCVEWPReallySimpleSecBypass  CheckID = "cve.wp_really_simple_security_bypass" // CVE-2024-10924 Really Simple Security 2FA auth bypass (CVSS 9.8)
+	CheckCVEWPHunkCompanionInstall   CheckID = "cve.wp_hunk_companion_install"    // CVE-2024-11972 Hunk Companion unauthenticated plugin installation (CVSS 9.8)
+	CheckCVEWPBackupMigrationRCE     CheckID = "cve.wp_backup_migration_rce"      // CVE-2023-6553 Backup Migration < 1.3.8 unauthenticated RCE (CVSS 9.8)
+	CheckCVEWPUltimateMemberSQLi     CheckID = "cve.wp_ultimate_member_sqli"      // CVE-2024-1071 Ultimate Member SQL injection via sorting parameter (CVSS 9.8)
+	CheckCVEWPQueryConsoleRCE        CheckID = "cve.wp_query_console_rce"         // CVE-2024-50498 WP Query Console unauthenticated eval() RCE (CVSS 9.8)
+	CheckCVEWPForminatorUpload       CheckID = "cve.wp_forminator_upload"         // CVE-2023-4596 Forminator < 1.25.0 unauthenticated file upload (CVSS 9.8)
+	CheckCVEWPElementorFileUploadRCE CheckID = "cve.wp_elementor_file_upload_rce" // CVE-2023-48777 Elementor < 3.18.2 arbitrary file upload RCE (CVSS 8.8)
+	CheckCVEWPTimeCapsuleRCE         CheckID = "cve.wp_timecapsule_rce"           // CVE-2024-8856 WP Time Capsule arbitrary file upload RCE (CVSS 9.8)
+	CheckCVEWPGiveWPInjection        CheckID = "cve.wp_givewp_php_injection"      // CVE-2024-5932 GiveWP PHP object injection RCE (CVSS 9.8)
+
+	// Confluence additional CVEs
+	CheckCVEConfluencePreAuthFileRead CheckID = "cve.confluence_preauth_file_read" // CVE-2021-26085 Confluence pre-auth arbitrary file read via /s/ servlet (CVSS 5.3)
+
+	// Jira additional CVEs
+	CheckCVEJiraSSTIContactAdmin     CheckID = "cve.jira_ssti_contact_admin"      // CVE-2019-11581 Jira SSTI via contact administrators form (CVSS 9.8, KEV)
+
+	// ColdFusion additional CVEs
+	CheckCVEColdFusionWDDXDeserRCE   CheckID = "cve.coldfusion_wddx_deser_rce"   // CVE-2023-29300 ColdFusion pre-auth WDDX deserialization RCE (CVSS 9.8, KEV)
+	CheckCVEColdFusionDeserUntrusted CheckID = "cve.coldfusion_deser_untrusted"   // CVE-2023-38203 ColdFusion deserialization of untrusted data RCE (CVSS 9.8, KEV)
+	CheckCVEColdFusionWDDXGadgets    CheckID = "cve.coldfusion_wddx_gadgets"      // CVE-2023-44353 ColdFusion WDDX deserialization gadget chains (CVSS 9.8)
+	CheckCVEColdFusionDirTraversal   CheckID = "cve.coldfusion_dir_traversal_admin" // CVE-2010-2861 ColdFusion 8/9 directory traversal → admin hash extraction (CVSS 7.5)
+
+	// Cisco additional CVEs
+	CheckCVECiscoIOSClusterRCE       CheckID = "cve.cisco_ios_cluster_rce"        // CVE-2017-3881 IOS CMP telnet buffer overflow RCE (CVSS 9.8, KEV, Vault 7)
+	CheckCVECiscoVPNRouterUpload     CheckID = "cve.cisco_vpn_router_upload"      // CVE-2023-20073 Cisco RV340/RV345 VPN router arbitrary file upload (CVSS 9.8)
+
+	// FortiOS additional CVEs
+	CheckCVEFortiWLMCmdInj           CheckID = "cve.fortiwlm_cmd_injection"       // CVE-2023-34993 FortiWLM unauthenticated OS command injection (CVSS 9.8)
+	CheckCVEFortiOSFormatStringRCE   CheckID = "cve.fortios_format_string_rce"    // CVE-2024-23113 FortiOS fgfmd format string RCE (CVSS 9.8, KEV)
+
+	// VMware additional CVEs
+	CheckCVEVMwareVRealizeRCE        CheckID = "cve.vmware_vrealize_rce"          // CVE-2023-20887 vRealize Network Insight pre-auth command injection (CVSS 9.8, KEV)
+
+	// Apache / Airflow additional CVEs
+	CheckCVEAirflowExperimentalAPI   CheckID = "cve.airflow_experimental_api_bypass" // CVE-2020-13927 Airflow experimental REST API auth bypass (CVSS 9.8, KEV)
+	CheckCVEOFBizDirTraversal2024Q2  CheckID = "cve.ofbiz_dir_traversal_2024q2"  // CVE-2024-36104 Apache OFBiz < 18.12.14 directory traversal via view name (CVSS 9.8)
+
+	// Zimbra additional CVEs
+	CheckCVEZimbraCPIOUploadRCE      CheckID = "cve.zimbra_cpio_upload_rce"       // CVE-2022-41352 Zimbra unrestricted file upload via cpio extraction (CVSS 9.8, KEV)
+
+	// Drupal additional CVEs
+	CheckCVEDrupalRESTDeserRCE       CheckID = "cve.drupal_rest_deser_rce"        // CVE-2019-6340 Drupal 8 REST module deserialization RCE (CVSS 8.1)
+
+	// ── Enterprise CVE exploit chains (2026-04-10) ──────────────────────
+
+	// Confluence additional
+	CheckCVEConfluenceOGNLInjection  CheckID = "cve.confluence_ognl_injection"    // CVE-2021-26084 Confluence OGNL injection in action URLs → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEConfluenceTemplateInj    CheckID = "cve.confluence_template_injection" // CVE-2023-22522 Confluence template injection via user input → authenticated RCE (CVSS 8.5)
+
+	// VMware additional
+	CheckCVEVMwareWSOneAuthBypass    CheckID = "cve.vmware_workspace_one_auth_bypass" // CVE-2022-31656 VMware Workspace ONE Access auth bypass via token manipulation (CVSS 9.8)
+
+	// Ivanti additional
+	CheckCVEIvantiEPMMUnauthAPI      CheckID = "cve.ivanti_epmm_unauth_api"      // CVE-2023-35082 Ivanti EPMM unauthenticated API access (CVSS 10.0, KEV)
+	CheckCVEIvantiCSAPathTraversal   CheckID = "cve.ivanti_csa_path_traversal"   // CVE-2024-8963 Ivanti CSA path traversal admin bypass (CVSS 9.4, KEV)
+	CheckCVEIvantiCSACmdInjection    CheckID = "cve.ivanti_csa_cmd_injection"    // CVE-2024-9380 Ivanti CSA OS command injection (CVSS 7.2, KEV)
+
+	// PaperCut
+	CheckCVEPaperCutRCE              CheckID = "cve.papercut_setup_rce"          // CVE-2023-27350 PaperCut NG/MF SetupCompleted unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVEPaperCutPathTraversal    CheckID = "cve.papercut_path_traversal"     // CVE-2023-39143 PaperCut NG/MF path traversal (CVSS 9.8)
+
+	// Cacti additional
+	CheckCVECactiFileWrite           CheckID = "cve.cacti_file_write"            // CVE-2024-25641 Cacti arbitrary file write via import (CVSS 9.1)
+
+	// vBulletin
+	CheckCVEvBulletinPreAuthRCE2023  CheckID = "cve.vbulletin_preauth_rce_2023"  // CVE-2023-25135 vBulletin pre-auth RCE via widget config deserialization (CVSS 9.8)
+	CheckCVEvBulletinRoutestringRCE  CheckID = "cve.vbulletin_routestring_rce"   // CVE-2019-16759 vBulletin pre-auth RCE via routestring (CVSS 9.8, KEV)
+
+	// Zimbra additional
+	CheckCVEZimbraXSSChain           CheckID = "cve.zimbra_xss_rce_chain"        // CVE-2023-37580 Zimbra XSS in calendar → session theft → RCE chain (CVSS 6.1, KEV)
+	CheckCVEZimbraPreAuthSSRF        CheckID = "cve.zimbra_preauth_ssrf"         // CVE-2022-27926 Zimbra preauth SSRF via proxy servlet (CVSS 6.1, KEV)
+
+	// SonicWall additional
+	CheckCVESonicWallGMSShellInj     CheckID = "cve.sonicwall_gms_shell_injection" // CVE-2023-34124 SonicWall GMS/Analytics web service shell injection (CVSS 9.8)
+
+	// MOVEit additional
+	CheckCVEMOVEitSQLi2              CheckID = "cve.moveit_sqli_2"               // CVE-2023-35708 MOVEit Transfer second SQL injection (CVSS 9.8)
+
+	// FortiOS additional
+	CheckCVEFortiOSSSLVPNHeapOverflow CheckID = "cve.fortios_sslvpn_heap_overflow" // CVE-2022-42475 FortiOS SSL VPN heap overflow → pre-auth RCE (CVSS 9.8, KEV)
 
 	// Nextcloud
 	CheckPortNextcloudDefaultCreds   CheckID = "port.nextcloud_default_credentials" // Nextcloud accepts default admin credentials (admin/admin)
 	CheckPortNextcloudStatusExposed  CheckID = "port.nextcloud_status_exposed"     // Nextcloud /status.php exposes exact version
 	CheckCVENextcloudSSRFPreview     CheckID = "cve.nextcloud_ssrf_preview"        // CVE-2023-48239 Nextcloud preview SSRF → cloud metadata/internal service access (CVSS 6.1)
+	CheckCVENextcloudInfoLeak        CheckID = "cve.nextcloud_info_leak"           // CVE-2023-25817 Nextcloud server info leak via preview endpoint (CVSS 6.5)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1450,6 +1559,18 @@ const (
 	CheckCorrelationCachePoisoningChain   CheckID = "correlation.cache_poisoning_chain"     // host header injection + cache or unkeyed header + XSS = mass user redirect/stored XSS
 	CheckCorrelationLateralMovementChain  CheckID = "correlation.lateral_movement_chain"    // unauthenticated service + web app on same network = pivot to data store
 	CheckCorrelationDNSRebindingChain     CheckID = "correlation.dns_rebinding_chain"       // DNS rebinding + internal services = bypass network restrictions
+
+	// ── Additional attack chain correlations (v2) ─────────────────────────
+	CheckCorrelationSSRFCloudIAMChain         CheckID = "correlation.ssrf_cloud_iam_chain"         // SSRF → cloud metadata → IAM escalation to cloud admin
+	CheckCorrelationDefaultCredsRCEChain      CheckID = "correlation.default_creds_rce_chain"      // default creds → admin panel → RCE on same host
+	CheckCorrelationInfoDisclosureLateralChain CheckID = "correlation.info_disclosure_lateral_chain" // exposed config → credential harvest → lateral movement to data tier
+	CheckCorrelationJWTAuthBypassChain        CheckID = "correlation.jwt_auth_bypass_chain"        // JWT weakness → forged token → API data access
+	CheckCorrelationOpenRedirectOAuthChain    CheckID = "correlation.open_redirect_oauth_chain"    // open redirect on OAuth domain → authorization code theft → account takeover
+	CheckCorrelationSubdomainTakeoverSessionChain CheckID = "correlation.subdomain_takeover_session_chain" // dangling DNS → subdomain claim → parent-domain cookie injection → session hijack
+	CheckCorrelationWeakTLSCredInterceptChain CheckID = "correlation.weak_tls_cred_intercept_chain" // weak TLS + auth service → MitM credential interception
+	CheckCorrelationContainerEscapeChain      CheckID = "correlation.container_escape_chain"       // exposed container API + container finding → host compromise
+	CheckCorrelationEmailSpoofPhishChain      CheckID = "correlation.email_spoof_phish_chain"      // missing DMARC/SPF + missing DKIM → domain spoofing → phishing → credential harvest
+	CheckCorrelationVersionCVEMatchChain      CheckID = "correlation.version_cve_match_chain"      // service version disclosure → matching known CVE → exploitation possible
 
 	// Terraform / IaC static analysis
 	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
@@ -1992,7 +2113,8 @@ const (
 	CheckOnpremLibvirtVMNoMemBalloon     CheckID = "onprem.libvirt.vm_no_memballoon"        // VM without memory balloon driver (can't reclaim memory)
 
 	// Meta — internal beacon operational findings
-	CheckMetaDryRunPlan CheckID = "meta.dry_run_plan" // Dry-run scan plan (no scanners executed)
+	CheckMetaDryRunPlan      CheckID = "meta.dry_run_plan"      // Dry-run scan plan (no scanners executed)
+	CheckMetaHostTimeoutBail CheckID = "meta.host_timeout_bail" // Host bailed after consecutive timeouts
 
 	// ── Cookie Security (expanded) ──────────────────────────────────────
 	CheckCookieNoPrefix       CheckID = "cookie.no_secure_prefix"    // session cookie missing __Host-/__Secure- prefix
@@ -2130,6 +2252,8 @@ const (
 	CheckCVECassandraUDFEscape     CheckID = "cve.cassandra_udf_sandbox_escape" // CVE-2021-44521 Cassandra UDF sandbox escape via Nashorn (CVSS 9.1)
 	CheckCVEInfluxDBAuthBypass      CheckID = "cve.influxdb_auth_bypass"      // CVE-2019-20933 InfluxDB authentication bypass via JWT empty secret (CVSS 9.8)
 	CheckCVEClickHouseRBACBypass   CheckID = "cve.clickhouse_rbac_bypass"    // ClickHouse RBAC bypass via SYSTEM queries on unpatched versions
+	CheckCVEClickHouseHeapOverflow CheckID = "cve.clickhouse_heap_overflow" // CVE-2023-47118 ClickHouse native protocol heap buffer overflow (CVSS 7.5)
+	CheckCVEClickHouseCodeInjection CheckID = "cve.clickhouse_code_injection" // CVE-2022-44013 ClickHouse code injection via crafted query (CVSS 8.8)
 
 	// ── Infrastructure CVEs ─────────────────────────────────────────────
 	CheckCVEKubeletWindowsRCE      CheckID = "cve.kubelet_windows_rce"       // CVE-2024-9042 Kubelet Windows node command injection RCE (CVSS 9.8)
@@ -2195,6 +2319,12 @@ const (
 
 	// Superset
 	CheckCVESupersetAuthBypass       CheckID = "cve.superset_auth_bypass"         // CVE-2023-36388 Apache Superset REST API auth bypass on specific endpoints (CVSS 5.4)
+
+	// TFTP
+	CheckCVETFTPUnauthAccess         CheckID = "cve.tftp_unauth_access"           // TFTP unauthenticated file access — detection only (no CVE assigned, protocol has no auth by design)
+
+	// Jaeger
+	CheckCVEJaegerUnauthTraces       CheckID = "cve.jaeger_unauth_traces"         // Jaeger unauthenticated trace access — detection only (no CVE assigned)
 
 	// Telnet
 	CheckCVETelnetCredentialBrute    CheckID = "cve.telnet_credential_brute"      // Telnet credential brute-force — detection only (no CVE assigned)
@@ -2397,7 +2527,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckSubdomainNSDelegationStale:     {CheckSubdomainNSDelegationStale, SeverityHigh, ModeSurface},
 	CheckSubdomainsDiscovered:           {CheckSubdomainsDiscovered, SeverityInfo, ModeSurface},
 	// Typosquat — DNS lookups only → Surface
-	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityHigh, ModeSurface},
+	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityMedium, ModeSurface},
 
 	// Web — passive fingerprinting from normal responses → Surface
 	// Active payload injection (XSS/SQLi/SSRF/traversal) and credential
@@ -2455,7 +2585,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCSPUnsafeInline:       {CheckCSPUnsafeInline, SeverityMedium, ModeSurface},
 	CheckCSPUnsafeEval:         {CheckCSPUnsafeEval, SeverityMedium, ModeSurface},
 	CheckCSPWildcardSource:     {CheckCSPWildcardSource, SeverityHigh, ModeSurface},
-	CheckWAFNotDetected:     {CheckWAFNotDetected, SeverityMedium, ModeSurface},
+	CheckWAFNotDetected:     {CheckWAFNotDetected, SeverityInfo, ModeSurface},
 	CheckWAFDetected:        {CheckWAFDetected, SeverityInfo, ModeSurface},
 	CheckWAFOriginExposed:      {CheckWAFOriginExposed, SeverityCritical, ModeSurface},
 	CheckWAFBypassHeader:       {CheckWAFBypassHeader, SeverityHigh, ModeDeep},
@@ -2763,6 +2893,14 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNmapSMTPOpenRelay:   {CheckNmapSMTPOpenRelay, SeverityCritical, ModeDeep},
 	CheckNmapMySQLNoPassword: {CheckNmapMySQLNoPassword, SeverityCritical, ModeDeep},
 	CheckNmapIPMICipherZero:  {CheckNmapIPMICipherZero, SeverityCritical, ModeDeep},
+
+	// nmap — CVE-specific vulnerability detections (deep)
+	CheckCVESMBEternalBlue:    {CheckCVESMBEternalBlue, SeverityCritical, ModeDeep},
+	CheckCVESMBMS08067:        {CheckCVESMBMS08067, SeverityCritical, ModeDeep},
+	CheckCVEOpenSSLHeartbleed: {CheckCVEOpenSSLHeartbleed, SeverityCritical, ModeDeep},
+	CheckCVEBashShellshock:    {CheckCVEBashShellshock, SeverityCritical, ModeDeep},
+	CheckCVETFTPUnauthAccess: {CheckCVETFTPUnauthAccess, SeverityMedium, ModeDeep},
+	CheckCVEJaegerUnauthTraces: {CheckCVEJaegerUnauthTraces, SeverityHigh, ModeDeep},
 
 	// Non-HTTP protocol exposure
 	CheckPortMQTTExposed:    {CheckPortMQTTExposed, SeverityHigh, ModeSurface},
@@ -3239,6 +3377,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationLateralMovementChain: {CheckCorrelationLateralMovementChain, SeverityCritical, ModeSurface},
 	CheckCorrelationDNSRebindingChain:    {CheckCorrelationDNSRebindingChain, SeverityCritical, ModeSurface},
 
+	// ── Additional attack chain correlations (v2) ─────────────────────────
+	CheckCorrelationSSRFCloudIAMChain:             {CheckCorrelationSSRFCloudIAMChain, SeverityCritical, ModeSurface},
+	CheckCorrelationDefaultCredsRCEChain:          {CheckCorrelationDefaultCredsRCEChain, SeverityCritical, ModeSurface},
+	CheckCorrelationInfoDisclosureLateralChain:    {CheckCorrelationInfoDisclosureLateralChain, SeverityCritical, ModeSurface},
+	CheckCorrelationJWTAuthBypassChain:            {CheckCorrelationJWTAuthBypassChain, SeverityCritical, ModeSurface},
+	CheckCorrelationOpenRedirectOAuthChain:        {CheckCorrelationOpenRedirectOAuthChain, SeverityHigh, ModeSurface},
+	CheckCorrelationSubdomainTakeoverSessionChain: {CheckCorrelationSubdomainTakeoverSessionChain, SeverityCritical, ModeSurface},
+	CheckCorrelationWeakTLSCredInterceptChain:     {CheckCorrelationWeakTLSCredInterceptChain, SeverityHigh, ModeSurface},
+	CheckCorrelationContainerEscapeChain:          {CheckCorrelationContainerEscapeChain, SeverityCritical, ModeSurface},
+	CheckCorrelationEmailSpoofPhishChain:          {CheckCorrelationEmailSpoofPhishChain, SeverityHigh, ModeSurface},
+	CheckCorrelationVersionCVEMatchChain:          {CheckCorrelationVersionCVEMatchChain, SeverityHigh, ModeSurface},
+
 	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
 	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ModeSurface},
 	CheckTerraformGCSBucketPublic:   {CheckTerraformGCSBucketPublic, SeverityHigh, ModeSurface},
@@ -3589,6 +3739,13 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortPhpMyAdminDefaultCreds:   {CheckPortPhpMyAdminDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortKibanaDefaultCreds:       {CheckPortKibanaDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortCassandraExposed:         {CheckPortCassandraExposed, SeverityCritical, ModeSurface},
+	CheckPortCassandraNoAuth:          {CheckPortCassandraNoAuth, SeverityCritical, ModeSurface},
+	CheckPortMSSQLExposed:             {CheckPortMSSQLExposed, SeverityHigh, ModeSurface},
+	CheckPortSMTPVRFY:                 {CheckPortSMTPVRFY, SeverityMedium, ModeSurface},
+	CheckPortMagentoDetected:          {CheckPortMagentoDetected, SeverityInfo, ModeSurface},
+	CheckPortConfluenceDetected:       {CheckPortConfluenceDetected, SeverityInfo, ModeSurface},
+	CheckPortJiraDetected:             {CheckPortJiraDetected, SeverityInfo, ModeSurface},
+	CheckPortJiraUnauthAPI:            {CheckPortJiraUnauthAPI, SeverityHigh, ModeSurface},
 
 	// Web framework / CMS / server fingerprinting
 	CheckPortWordPressDetected:         {CheckPortWordPressDetected, SeverityInfo, ModeSurface},
@@ -3796,7 +3953,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGitLabCIPrivilegedRunner: {CheckGitLabCIPrivilegedRunner, SeverityHigh, ModeSurface},
 
 	// Container Registry — Deep (active probe)
-	CheckContainerRegistryExposed:       {CheckContainerRegistryExposed, SeverityCritical, ModeDeep},
+	CheckContainerRegistryExposed:       {CheckContainerRegistryExposed, SeverityHigh, ModeSurface},
 	CheckContainerImageUnsigned:         {CheckContainerImageUnsigned, SeverityMedium, ModeDeep},
 	CheckContainerImageLatestTag:        {CheckContainerImageLatestTag, SeverityLow, ModeDeep},
 	CheckContainerRegistryAnonymousPush: {CheckContainerRegistryAnonymousPush, SeverityCritical, ModeDeep},
@@ -3950,7 +4107,23 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOnpremLibvirtVMNoMemBalloon: {CheckOnpremLibvirtVMNoMemBalloon, SeverityLow, ModeDeep},
 
 	// Meta — internal operational findings (always surface-safe)
-	CheckMetaDryRunPlan: {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
+	CheckMetaDryRunPlan:      {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
+	CheckMetaHostTimeoutBail: {CheckMetaHostTimeoutBail, SeverityInfo, ModeSurface},
+
+	// Passive injection signals — Surface (no payloads, just observation)
+	CheckWebParamReflected:    {CheckWebParamReflected, SeverityHigh, ModeSurface},
+	CheckWebSQLErrorDisclosed: {CheckWebSQLErrorDisclosed, SeverityHigh, ModeSurface},
+	CheckWebStackTrace:        {CheckWebStackTrace, SeverityMedium, ModeSurface},
+
+	// Attack chain correlation — Surface (derived from other findings)
+	CheckChainSessionHijack:    {CheckChainSessionHijack, SeverityHigh, ModeSurface},
+	CheckChainAccountTakeover:  {CheckChainAccountTakeover, SeverityCritical, ModeSurface},
+	CheckChainDataExfil:        {CheckChainDataExfil, SeverityHigh, ModeSurface},
+	CheckChainCVEResponseSplit: {CheckChainCVEResponseSplit, SeverityCritical, ModeSurface},
+
+	// Directory/path exposure — Surface
+	CheckExposureDirListing:     {CheckExposureDirListing, SeverityMedium, ModeSurface},
+	CheckExposureAliasTraversal: {CheckExposureAliasTraversal, SeverityHigh, ModeSurface},
 
 	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
 	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},
@@ -4255,6 +4428,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortNextcloudDefaultCreds:   {CheckPortNextcloudDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortNextcloudStatusExposed:  {CheckPortNextcloudStatusExposed, SeverityLow, ModeSurface},
 	CheckCVENextcloudSSRFPreview:     {CheckCVENextcloudSSRFPreview, SeverityHigh, ModeDeep},
+	CheckCVENextcloudInfoLeak:        {CheckCVENextcloudInfoLeak, SeverityMedium, ModeSurface},
 
 	// Database CVEs — Neo4j, Cassandra, InfluxDB, ClickHouse
 	CheckCVENeo4jJavaDeserial:        {CheckCVENeo4jJavaDeserial, SeverityCritical, ModeDeep},
@@ -4262,6 +4436,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVECassandraUDFEscape:       {CheckCVECassandraUDFEscape, SeverityHigh, ModeDeep},
 	CheckCVEInfluxDBAuthBypass:        {CheckCVEInfluxDBAuthBypass, SeverityCritical, ModeDeep},
 	CheckCVEClickHouseRBACBypass:     {CheckCVEClickHouseRBACBypass, SeverityHigh, ModeDeep},
+	CheckCVEClickHouseHeapOverflow:  {CheckCVEClickHouseHeapOverflow, SeverityHigh, ModeSurface},
+	CheckCVEClickHouseCodeInjection: {CheckCVEClickHouseCodeInjection, SeverityHigh, ModeSurface},
 
 	// Infrastructure CVEs — Kubelet, Proxmox, MikroTik
 	CheckCVEKubeletWindowsRCE:        {CheckCVEKubeletWindowsRCE, SeverityCritical, ModeDeep},
@@ -4356,6 +4532,81 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVESharePointEntityRCE:     {CheckCVESharePointEntityRCE, SeverityCritical, ModeDeep},
 	CheckCVEVCenterAnalyticsRCE:     {CheckCVEVCenterAnalyticsRCE, SeverityCritical, ModeDeep},
 	CheckCVETelerikDialogKey:        {CheckCVETelerikDialogKey, SeverityCritical, ModeDeep},
+
+	// === New CVE exploit playbook entries ===
+
+	// WordPress plugin CVEs
+	CheckCVEWPLiteSpeedPrivEsc:       {CheckCVEWPLiteSpeedPrivEsc, SeverityCritical, ModeDeep},
+	CheckCVEWPReallySimpleSecBypass:  {CheckCVEWPReallySimpleSecBypass, SeverityCritical, ModeDeep},
+	CheckCVEWPHunkCompanionInstall:   {CheckCVEWPHunkCompanionInstall, SeverityCritical, ModeDeep},
+	CheckCVEWPBackupMigrationRCE:     {CheckCVEWPBackupMigrationRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPUltimateMemberSQLi:     {CheckCVEWPUltimateMemberSQLi, SeverityCritical, ModeDeep},
+	CheckCVEWPQueryConsoleRCE:        {CheckCVEWPQueryConsoleRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPForminatorUpload:       {CheckCVEWPForminatorUpload, SeverityCritical, ModeDeep},
+	CheckCVEWPElementorFileUploadRCE: {CheckCVEWPElementorFileUploadRCE, SeverityHigh, ModeDeep},
+	CheckCVEWPTimeCapsuleRCE:         {CheckCVEWPTimeCapsuleRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPGiveWPInjection:        {CheckCVEWPGiveWPInjection, SeverityCritical, ModeDeep},
+
+	// Confluence
+	CheckCVEConfluencePreAuthFileRead: {CheckCVEConfluencePreAuthFileRead, SeverityHigh, ModeDeep},
+
+	// Jira
+	CheckCVEJiraSSTIContactAdmin:     {CheckCVEJiraSSTIContactAdmin, SeverityCritical, ModeDeep},
+
+	// ColdFusion
+	CheckCVEColdFusionWDDXDeserRCE:   {CheckCVEColdFusionWDDXDeserRCE, SeverityCritical, ModeDeep},
+	CheckCVEColdFusionDeserUntrusted: {CheckCVEColdFusionDeserUntrusted, SeverityCritical, ModeDeep},
+	CheckCVEColdFusionWDDXGadgets:    {CheckCVEColdFusionWDDXGadgets, SeverityCritical, ModeDeep},
+	CheckCVEColdFusionDirTraversal:   {CheckCVEColdFusionDirTraversal, SeverityHigh, ModeDeep},
+
+	// Cisco
+	CheckCVECiscoIOSClusterRCE:       {CheckCVECiscoIOSClusterRCE, SeverityCritical, ModeDeep},
+	CheckCVECiscoVPNRouterUpload:     {CheckCVECiscoVPNRouterUpload, SeverityCritical, ModeDeep},
+
+	// FortiOS
+	CheckCVEFortiWLMCmdInj:           {CheckCVEFortiWLMCmdInj, SeverityCritical, ModeDeep},
+	CheckCVEFortiOSFormatStringRCE:   {CheckCVEFortiOSFormatStringRCE, SeverityCritical, ModeDeep},
+
+	// VMware
+	CheckCVEVMwareVRealizeRCE:        {CheckCVEVMwareVRealizeRCE, SeverityCritical, ModeDeep},
+
+	// Apache / Airflow
+	CheckCVEAirflowExperimentalAPI:   {CheckCVEAirflowExperimentalAPI, SeverityCritical, ModeDeep},
+	CheckCVEOFBizDirTraversal2024Q2:  {CheckCVEOFBizDirTraversal2024Q2, SeverityCritical, ModeDeep},
+
+	// Zimbra
+	CheckCVEZimbraCPIOUploadRCE:      {CheckCVEZimbraCPIOUploadRCE, SeverityCritical, ModeDeep},
+
+	// Drupal
+	CheckCVEDrupalRESTDeserRCE:       {CheckCVEDrupalRESTDeserRCE, SeverityCritical, ModeDeep},
+
+	// ── Enterprise CVE exploit chains (2026-04-10) ──────────────────────
+	// Confluence
+	CheckCVEConfluenceOGNLInjection:  {CheckCVEConfluenceOGNLInjection, SeverityCritical, ModeDeep},
+	CheckCVEConfluenceTemplateInj:    {CheckCVEConfluenceTemplateInj, SeverityHigh, ModeDeep},
+	// VMware
+	CheckCVEVMwareWSOneAuthBypass:    {CheckCVEVMwareWSOneAuthBypass, SeverityCritical, ModeDeep},
+	// Ivanti
+	CheckCVEIvantiEPMMUnauthAPI:      {CheckCVEIvantiEPMMUnauthAPI, SeverityCritical, ModeDeep},
+	CheckCVEIvantiCSAPathTraversal:   {CheckCVEIvantiCSAPathTraversal, SeverityCritical, ModeDeep},
+	CheckCVEIvantiCSACmdInjection:    {CheckCVEIvantiCSACmdInjection, SeverityCritical, ModeDeep},
+	// PaperCut
+	CheckCVEPaperCutRCE:              {CheckCVEPaperCutRCE, SeverityCritical, ModeDeep},
+	CheckCVEPaperCutPathTraversal:    {CheckCVEPaperCutPathTraversal, SeverityCritical, ModeDeep},
+	// Cacti
+	CheckCVECactiFileWrite:           {CheckCVECactiFileWrite, SeverityCritical, ModeDeep},
+	// vBulletin
+	CheckCVEvBulletinPreAuthRCE2023:  {CheckCVEvBulletinPreAuthRCE2023, SeverityCritical, ModeDeep},
+	CheckCVEvBulletinRoutestringRCE:  {CheckCVEvBulletinRoutestringRCE, SeverityCritical, ModeDeep},
+	// Zimbra
+	CheckCVEZimbraXSSChain:           {CheckCVEZimbraXSSChain, SeverityHigh, ModeDeep},
+	CheckCVEZimbraPreAuthSSRF:        {CheckCVEZimbraPreAuthSSRF, SeverityHigh, ModeDeep},
+	// SonicWall
+	CheckCVESonicWallGMSShellInj:     {CheckCVESonicWallGMSShellInj, SeverityCritical, ModeDeep},
+	// MOVEit
+	CheckCVEMOVEitSQLi2:             {CheckCVEMOVEitSQLi2, SeverityCritical, ModeDeep},
+	// FortiOS
+	CheckCVEFortiOSSSLVPNHeapOverflow: {CheckCVEFortiOSSSLVPNHeapOverflow, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

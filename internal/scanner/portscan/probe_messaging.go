@@ -91,6 +91,12 @@ func detectRabbitMQMgmt(ctx context.Context, host string, port int, banner strin
 		bodyLow := strings.ToLower(body)
 		if strings.Contains(bodyLow, "rabbitmq") {
 			ev := map[string]any{"port": port, "service": "rabbitmq-mgmt"}
+			// Try /api/overview for version (unauthenticated on older installs).
+			if overviewBody, overviewOK := probeHTTPBody(ctx, host, port, false, "/api/overview"); overviewOK {
+				if ver := parseJSONStringField(overviewBody, "rabbitmq_version"); ver != "" {
+					ev["version"] = ver
+				}
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortRabbitMQMgmtExposed,
 				finding.SeverityHigh,
@@ -108,6 +114,10 @@ func detectRabbitMQMgmt(ctx context.Context, host string, port int, banner strin
 	if body, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/api/overview", "guest", "guest"); ok {
 		bodyLow := strings.ToLower(body)
 		if strings.Contains(bodyLow, "rabbitmq_version") || strings.Contains(bodyLow, "cluster_name") {
+			ev := map[string]any{"port": port, "service": "rabbitmq-mgmt", "creds": "guest:guest", "authenticated": true}
+			if ver := parseJSONStringField(body, "rabbitmq_version"); ver != "" {
+				ev["version"] = ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortRabbitMQDefaultCreds,
 				finding.SeverityCritical,
@@ -116,7 +126,7 @@ func detectRabbitMQMgmt(ctx context.Context, host string, port int, banner strin
 					"An attacker can read all messages in transit, publish arbitrary messages, delete queues, "+
 					"reconfigure exchanges and virtual hosts, and manage user accounts. "+
 					"Delete the guest account and create named service accounts with minimal permissions.",
-				map[string]any{"port": port, "service": "rabbitmq-mgmt", "creds": "guest:guest", "authenticated": true},
+				ev,
 			)}
 		}
 	}
@@ -139,13 +149,14 @@ func detectKafka(ctx context.Context, host string, port int, banner string, make
 }
 
 func detectNATSMonitoring(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/varz")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/varz")
 	if !ok {
 		return nil
 	}
 	ev := map[string]any{"port": port, "service": "nats"}
 	if ver := parseJSONStringField(body, "version"); ver != "" {
 		ev["nats_version"] = ver
+		ev["version"] = ver
 	}
 	if !strings.Contains(body, "server_id") && !strings.Contains(body, "nats") {
 		return nil
@@ -184,6 +195,11 @@ func detectActiveMQ(ctx context.Context, host string, port int, banner string, m
 		)}
 	}
 	// ActiveMQ detected but version not determined or not vulnerable — still report exposure.
+	ev := map[string]any{"port": port, "service": "activemq", "banner": banner}
+	// Try to extract version from banner even if not in the CVE-vulnerable range.
+	if verStr != "" {
+		ev["version"] = verStr
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortActiveMQExposed,
 		finding.SeverityHigh,
@@ -193,7 +209,7 @@ func detectActiveMQ(ctx context.Context, host string, port int, banner string, m
 			"trusted application networks. Multiple critical CVEs affect ActiveMQ brokers "+
 			"including CVE-2023-46604 (CVSS 10.0, RCE). Verify the version and patch level, "+
 			"and restrict port 61616 to internal networks immediately.",
-		map[string]any{"port": port, "service": "activemq", "banner": banner},
+		ev,
 	)}
 }
 
@@ -219,6 +235,12 @@ func detectZooKeeper(ctx context.Context, host string, port int, banner string, 
 	if !probeZooKeeper(ctx, host, port) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "zookeeper", "banner": banner}
+	// Extract version by sending "stat" command (ZooKeeper four-letter command).
+	if ver := probeZooKeeperVersion(ctx, host, port); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Apache ZooKeeper " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortZooKeeperExposed,
 		finding.SeverityHigh,
@@ -226,12 +248,12 @@ func detectZooKeeper(ctx context.Context, host string, port int, banner string, 
 		"Apache ZooKeeper is publicly accessible. ZooKeeper stores distributed configuration "+
 			"and coordination data for services like Kafka, HBase, and Hadoop. Unauthenticated access "+
 			"allows reading and modifying cluster configuration, enabling service disruption or data extraction.",
-		map[string]any{"port": port, "service": "zookeeper", "banner": banner},
+		ev,
 	)}
 }
 
 func detectPulsarAdmin(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/admin/v2/clusters")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/admin/v2/clusters")
 	if !ok {
 		return nil
 	}
@@ -257,13 +279,34 @@ func detectPulsarAdmin(ctx context.Context, host string, port int, banner string
 }
 
 func detectNiFi(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/nifi/")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/nifi/")
 	if !ok {
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
 	if !strings.Contains(bodyLow, "nifi") && !strings.Contains(bodyLow, "apache nifi") {
 		return nil
+	}
+	ev := map[string]any{"port": port, "service": "nifi",
+		"url": fmt.Sprintf("http://%s:%d/nifi/", host, port)}
+	// Extract NiFi version from the HTML body (e.g. "NiFi 1.25.0" or version in script/meta).
+	for _, prefix := range []string{"nifi-", "nifi/"} {
+		if idx := strings.Index(bodyLow, prefix); idx >= 0 {
+			after := body[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Apache NiFi " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNiFiExposed,
@@ -274,8 +317,7 @@ func detectNiFi(ctx context.Context, host string, port int, banner string, makeF
 			"Unauthenticated access (or default credentials) allows full control over data routing, "+
 			"reading all data in transit, modifying processor configurations, and connecting "+
 			"to internal data sources. Enable NiFi authentication and restrict to trusted networks.",
-		map[string]any{"port": port, "service": "nifi",
-			"url": fmt.Sprintf("http://%s:%d/nifi/", host, port)},
+		ev,
 	)}
 }
 
@@ -285,6 +327,26 @@ func detectAsteriskAMI(ctx context.Context, host string, port int, banner string
 		return nil
 	}
 	ev["banner"] = banner
+	// Extract version from AMI greeting banner (e.g. "Asterisk Call Manager/18.20.0").
+	bannerLow := strings.ToLower(banner)
+	for _, prefix := range []string{"call manager/", "asterisk/"} {
+		if idx := strings.Index(bannerLow, prefix); idx >= 0 {
+			after := banner[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Asterisk " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortAsteriskAMIExposed,
 		finding.SeverityHigh,

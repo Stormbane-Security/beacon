@@ -220,6 +220,169 @@ func (l *Logger) ProbeTimed(scanner, target, probe string, duration time.Duratio
 	l.Debug("probe.timed", attrs...)
 }
 
+// --- Probe execution events ---
+
+// ProbeResult logs a completed probe with findings summary.
+func (l *Logger) ProbeResult(probeName string, port int, duration time.Duration, findingCount int, version string, skipped bool, skipReason string) {
+	attrs := []any{
+		slog.String("probe", probeName),
+		slog.Int("port", port),
+		slog.Duration("duration", duration),
+		slog.Int("finding_count", findingCount),
+	}
+	if version != "" {
+		attrs = append(attrs, slog.String("version", version))
+	}
+	if skipped {
+		attrs = append(attrs, slog.Bool("skipped", true))
+		attrs = append(attrs, slog.String("skip_reason", skipReason))
+	}
+	l.Debug("probe.result", attrs...)
+}
+
+// ProbeSkipped logs a probe that was skipped due to category mismatch.
+func (l *Logger) ProbeSkipped(probeName string, port int, reason string) {
+	l.Debug("probe.skipped",
+		slog.String("probe", probeName),
+		slog.Int("port", port),
+		slog.String("reason", reason),
+	)
+}
+
+// --- CVE version check events ---
+
+// CVEVersionCheckStart logs the start of a CVE version check.
+func (l *Logger) CVEVersionCheckStart(service, version string) {
+	l.Debug("cve.version_check_start",
+		slog.String("service", service),
+		slog.String("version", version),
+	)
+}
+
+// CVEVersionRuleEvaluated logs a single CVE rule evaluation.
+func (l *Logger) CVEVersionRuleEvaluated(service, version, cve, checkID string, matched bool, reason string) {
+	l.Debug("cve.rule_evaluated",
+		slog.String("service", service),
+		slog.String("version", version),
+		slog.String("cve", cve),
+		slog.String("check_id", checkID),
+		slog.Bool("matched", matched),
+		slog.String("reason", reason),
+	)
+}
+
+// CVEVersionCheckComplete logs the completion of CVE version checking.
+func (l *Logger) CVEVersionCheckComplete(service, version string, rulesChecked, matched int) {
+	l.Debug("cve.version_check_complete",
+		slog.String("service", service),
+		slog.String("version", version),
+		slog.Int("rules_checked", rulesChecked),
+		slog.Int("matched", matched),
+	)
+}
+
+// --- Chain engine events ---
+
+// ChainEvaluate logs a finding being evaluated for chain routing.
+func (l *Logger) ChainEvaluate(checkID, asset, routeType, playbookName string, cveChainCount int) {
+	attrs := []any{
+		slog.String("check_id", checkID),
+		slog.String("asset", asset),
+		slog.String("route_type", routeType),
+		slog.String("playbook", playbookName),
+	}
+	if cveChainCount > 0 {
+		attrs = append(attrs, slog.Int("cve_chain_count", cveChainCount))
+	}
+	l.Debug("chain.evaluate", attrs...)
+}
+
+// ChainTriggered logs a chain being triggered by a finding.
+func (l *Logger) ChainTriggered(chainName, checkID, asset string) {
+	l.Debug("chain.triggered",
+		slog.String("chain", chainName),
+		slog.String("check_id", checkID),
+		slog.String("asset", asset),
+	)
+}
+
+// ChainNoMatch logs that no chain matched a finding.
+func (l *Logger) ChainNoMatch(checkID, asset string) {
+	l.Debug("chain.no_match",
+		slog.String("check_id", checkID),
+		slog.String("asset", asset),
+	)
+}
+
+// --- Exploit chain step events ---
+
+// ExploitStepResult logs an individual exploit step execution.
+func (l *Logger) ExploitStepResult(stepName, method, path string, success bool, statusCode int, patternMatched bool, duration time.Duration) {
+	attrs := []any{
+		slog.String("step", stepName),
+		slog.String("method", method),
+		slog.String("path", path),
+		slog.Bool("success", success),
+		slog.Duration("duration", duration),
+	}
+	if statusCode > 0 {
+		attrs = append(attrs, slog.Int("status_code", statusCode))
+	}
+	attrs = append(attrs, slog.Bool("pattern_matched", patternMatched))
+	l.Debug("exploit.step_result", attrs...)
+}
+
+// --- Post-exploit module events ---
+
+// PostExploitModuleStart logs a post-exploit module starting.
+func (l *Logger) PostExploitModuleStart(moduleName, host string, port int) {
+	l.Debug("postexploit.module_start",
+		slog.String("module", moduleName),
+		slog.String("host", host),
+		slog.Int("port", port),
+	)
+}
+
+// PostExploitModuleComplete logs a post-exploit module finishing.
+func (l *Logger) PostExploitModuleComplete(moduleName, host string, port int, findingCount int, dataSummary string, duration time.Duration) {
+	attrs := []any{
+		slog.String("module", moduleName),
+		slog.String("host", host),
+		slog.Int("port", port),
+		slog.Int("finding_count", findingCount),
+		slog.Duration("duration", duration),
+	}
+	if dataSummary != "" {
+		attrs = append(attrs, slog.String("data_summary", dataSummary))
+	}
+	l.Debug("postexploit.module_complete", attrs...)
+}
+
+// --- Phase timing events ---
+
+// PhaseComplete logs the duration of a major scan phase.
+func (l *Logger) PhaseComplete(phase, asset string, duration time.Duration, detail string) {
+	attrs := []any{
+		slog.String("phase", phase),
+		slog.Duration("duration", duration),
+	}
+	if asset != "" {
+		attrs = append(attrs, slog.String("asset", asset))
+	}
+	if detail != "" {
+		attrs = append(attrs, slog.String("detail", detail))
+	}
+	l.Debug("phase.complete", attrs...)
+}
+
+// --- Utility ---
+
+// IsDebug returns true if the logger is configured at debug level or below.
+// Use this to gate expensive debug-only computation (e.g. building summary strings).
+func (l *Logger) IsDebug() bool {
+	return l.Enabled(context.Background(), slog.LevelDebug)
+}
+
 // ParseLevel converts a string level name to slog.Level.
 func ParseLevel(s string) slog.Level {
 	switch s {

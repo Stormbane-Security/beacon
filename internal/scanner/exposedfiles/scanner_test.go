@@ -90,6 +90,52 @@ func TestExposedFiles_BodyContainsFilterWorks(t *testing.T) {
 	}
 }
 
+func TestExposedFiles_EnvSPACatchAllNotFlagged(t *testing.T) {
+	// Next.js / React / Vue SPA catch-all: returns 200 + HTML for any path.
+	// The HTML body contains "=" (common in attributes) so bodyContains passes,
+	// but this should NOT be flagged as an exposed .env file.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprintln(w, `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body><div id="__next"></div><script src="/_next/static/chunks/main.js"></script></body></html>`)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Title, ".env") {
+			t.Errorf("SPA catch-all HTML should not trigger .env finding: %s", f.Title)
+		}
+	}
+}
+
+func TestExposedFiles_EnvNoKeyValueNotFlagged(t *testing.T) {
+	// Server returns text/plain with "=" but no KEY=value pattern.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.env" {
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = fmt.Fprintln(w, "this is not a real env file but has = in it")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Title, ".env") {
+			t.Errorf("text without KEY=value should not trigger .env finding: %s", f.Title)
+		}
+	}
+}
+
 func TestExposedFiles_404NotFlagged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)

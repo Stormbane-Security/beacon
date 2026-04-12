@@ -22,7 +22,7 @@ func init() {
 	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
 	},
-		scan.Check(finding.CheckDomainTyposquat, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckDomainTyposquat, finding.SeverityMedium, finding.ModeSurface),
 	)
 }
 const scannerName = "typosquat"

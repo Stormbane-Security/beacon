@@ -1,0 +1,84 @@
+name: blind-version-detection
+description: >
+  Version extraction accuracy test. Three services with known versions are
+  deployed. Beacon must detect each service AND extract version information
+  into the finding evidence. Validates that the fingerprinting engine pulls
+  version strings from banners, HTTP headers, and API responses.
+tags: [blind, version, fingerprint, portscan, accuracy]
+
+services:
+  redis:
+    image: redis:6.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20720:6379"]
+
+  mongo:
+    image: mongo:7
+    ports: ["20721:27017"]
+
+  consul:
+    image: hashicorp/consul:1.15
+    ports: ["20722:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: >
+    redis-cli -h localhost -p 20720 PING 2>/dev/null | grep -q PONG &&
+    curl -sf http://localhost:20722/v1/status/leader | grep -q ':'
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Verify version strings are available in banners
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-redis-version-in-info
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20720 INFO server 2>/dev/null | grep -q 'redis_version:6.2'"
+      exit_code: 0
+
+  - name: preflight-consul-version-in-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20722/v1/agent/self | grep -q '1.15'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION: Each service detected with version evidence
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-redis-with-version
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20720"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: detects-consul-with-version
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20722", "--yes"]
+    expect:
+      check_id: port.consul_no_acl
+
+  - name: detects-all-three-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20720,20721,20722", "--yes"]
+    expect:
+      min_findings: 3
+
+  # ══════════════════════════════════════════════════════════════════════
+  # VERSION EVIDENCE: Verify version info appears in findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-postgres-detected
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20720,20721,20722"]
+    expect:
+      not_check_id: port.postgresql_trust
+
+timeout: 5m

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -333,15 +334,17 @@ func probeDNSRecursion(ctx context.Context, host string, port int) bool {
 		return false
 	}
 
-	buf := make([]byte, 512)
-	n, err := conn.Read(buf)
-	if err != nil || n < 14 {
+	// Read TCP DNS response: first 2 bytes are length prefix.
+	lenBuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, lenBuf); err != nil {
 		return false
 	}
-
-	// Skip 2-byte TCP length prefix.
-	resp := buf[2:]
-	if len(resp) < 12 {
+	respLen := binary.BigEndian.Uint16(lenBuf)
+	if respLen < 12 || respLen > 4096 {
+		return false
+	}
+	resp := make([]byte, respLen)
+	if _, err := io.ReadFull(conn, resp); err != nil {
 		return false
 	}
 

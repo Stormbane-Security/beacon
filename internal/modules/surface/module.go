@@ -15,10 +15,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +40,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/classify"
 	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/vulndb"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 	"github.com/stormbane-security/beacon/internal/scanner/assetintel"
@@ -116,7 +120,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
-	_ "github.com/stormbane-security/beacon/internal/scanner/correlation"
+	"github.com/stormbane-security/beacon/internal/scanner/correlation"
 	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
 	_ "github.com/stormbane-security/beacon/internal/scanner/privesc"
 	_ "github.com/stormbane-security/beacon/internal/scanner/statemachine"
@@ -148,6 +152,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/mcpscan"
 	_ "github.com/stormbane-security/beacon/internal/scanner/h2c"
 	_ "github.com/stormbane-security/beacon/internal/scanner/secheaders"
+	_ "github.com/stormbane-security/beacon/internal/scanner/passiveinject"
 	_ "github.com/stormbane-security/beacon/internal/scanner/proxychain"
 	_ "github.com/stormbane-security/beacon/internal/scanner/cacheprobe"
 	_ "github.com/stormbane-security/beacon/internal/scanner/cookie"
@@ -555,7 +560,15 @@ func isDeepOrAuthorized(t module.ScanType) bool {
 }
 
 // Run executes the full surface scan pipeline driven by playbooks.
-func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
+func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) (allResults []finding.Finding, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: surface module panic (recovered): %v", r)
+			debug.PrintStack()
+			retErr = fmt.Errorf("surface module panicked: %v", r)
+		}
+	}()
+
 	rootDomain := input.Domain
 
 	// Store scanner filter and dry-run flag for use in runAsset.
@@ -569,43 +582,16 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	// ── Fast path: --scanners mode ──────────────────────────────────────────
-	// When a scanner filter is active, skip discovery, evidence collection,
-	// and playbook matching. Just run the requested scanners against the
-	// root domain directly. This is the mode used by Drydock for targeted
-	// scanner testing.
+	// ── Scanner filter validation ───────────────────────────────────────────
+	// When --scanners is set, validate that all requested scanners exist.
+	// Discovery still runs normally — the filter only restricts which
+	// scanners execute against each discovered asset (applied in runAsset).
 	if len(m.scannerFilter) > 0 {
-		// Validate that all requested scanners exist in the registry.
 		for _, name := range m.scannerFilter {
 			if _, ok := m.scanners[name]; !ok {
 				return nil, fmt.Errorf("unknown scanner %q (available: use --help to list)", name)
 			}
 		}
-
-		if input.Progress != nil {
-			input.Progress(module.ProgressEvent{
-				Phase:       "discovery_done",
-				AssetsTotal: 1,
-				AssetNames:  []string{rootDomain},
-			})
-		}
-
-		fs := m.runAsset(ctx, rootDomain, rootDomain, scanType, input.ScanRunID, 0, input.Progress, map[string]bool{rootDomain: true}, &sync.Mutex{})
-
-		// Active attack path chaining in fast-path mode.
-		if chainEng, err := chainengine.New(scanType); err == nil {
-			for _, f := range fs {
-				if ctx.Err() != nil {
-					break
-				}
-				chainResults := chainEng.OnFinding(ctx, f)
-				if len(chainResults) > 0 {
-					fs = append(fs, chainResults...)
-				}
-			}
-		}
-
-		return fs, ctx.Err()
 	}
 
 	// Load active fingerprint rules once per scan run and cache on the module.
@@ -639,7 +625,15 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	}
 
 	// ── Phase 1: Asset Discovery ─────────────────────────────────────────────
+	sl := scanlog.FromContext(ctx)
 	var wgDiscover sync.WaitGroup
+
+	// Skip subdomain discovery, WHOIS, BGP, AXFR, and passive DNS when the
+	// target is an IP address or localhost — there are no subdomains to discover.
+	skipDiscovery := isIPOrLocalhost(rootDomain)
+	if skipDiscovery {
+		sl.Debug("discovery.skip", "reason", "target is IP or localhost", "target", rootDomain)
+	}
 
 	// Amass active mode performs DNS zone-walking and brute-force queries —
 	// gate it on PermissionConfirmed, not just ScanDeep, since aggressive
@@ -676,30 +670,38 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	progress("enumerating subdomains...")
-
-	// ── Improvement 3: Discovery cache ──────────────────────────────────────
-	// Check the subdomain discovery cache before launching scanners. On a cache
-	// hit (within 24h TTL), use cached results immediately and launch discovery
-	// in the background to detect drift (new/removed subdomains).
+	// Discovery cache and wildcard detection are only relevant for domain targets.
 	discoveryCache := scan.NewDiscoveryCache()
 	var cachedAssets []string
 	cacheHit := false
-	if discoveryCache != nil {
-		if cached, ok := discoveryCache.Get(rootDomain); ok {
-			cachedAssets = cached
-			cacheHit = true
-			progress(fmt.Sprintf("cache hit: %d subdomains from previous scan — launching background refresh...", len(cached)))
-		}
-	}
+	wildcardDetected := false
+	var wildcardIP string
 
-	// ── Improvement 5: Wildcard DNS detection (pipeline-level) ──────────────
-	// Detect wildcard DNS early. If detected, brute-force inside the subdomain
-	// scanner is already skipped (it has its own detection), but we log the
-	// warning here for pipeline-level visibility.
-	wildcardDetected, wildcardIP := scan.DetectWildcard(ctx, rootDomain)
-	if wildcardDetected {
-		progress(fmt.Sprintf("wildcard DNS detected for *.%s (resolves to %s) — brute-force results will be filtered", rootDomain, wildcardIP))
+	if skipDiscovery {
+		progress("IP/localhost target — skipping subdomain discovery")
+	} else {
+		progress("enumerating subdomains...")
+
+		// ── Improvement 3: Discovery cache ──────────────────────────────────
+		// Check the subdomain discovery cache before launching scanners. On a
+		// cache hit (within 24h TTL), use cached results immediately and launch
+		// discovery in the background to detect drift (new/removed subdomains).
+		if discoveryCache != nil {
+			if cached, ok := discoveryCache.Get(rootDomain); ok {
+				cachedAssets = cached
+				cacheHit = true
+				progress(fmt.Sprintf("cache hit: %d subdomains from previous scan — launching background refresh...", len(cached)))
+			}
+		}
+
+		// ── Improvement 5: Wildcard DNS detection (pipeline-level) ──────────
+		// Detect wildcard DNS early. If detected, brute-force inside the
+		// subdomain scanner is already skipped (it has its own detection), but
+		// we log the warning here for pipeline-level visibility.
+		wildcardDetected, wildcardIP = scan.DetectWildcard(ctx, rootDomain)
+		if wildcardDetected {
+			progress(fmt.Sprintf("wildcard DNS detected for *.%s (resolves to %s) — brute-force results will be filtered", rootDomain, wildcardIP))
+		}
 	}
 
 	type discoveryBatch struct {
@@ -713,33 +715,39 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// sources feed the scan pipeline while slow sources are still running.
 	batchResults := make(chan discoveryBatch, 4)
 
-	// Source priority 2: Passive DNS (fast, single HTTP call)
-	wgDiscover.Add(1)
-	go func() {
-		defer wgDiscover.Done()
-		discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
-		fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
-		discScanDone("passivedns", fs)
-		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
-	}()
+	if !skipDiscovery {
+		// Source priority 2: Passive DNS (fast, single HTTP call)
+		wgDiscover.Add(1)
+		go func() {
+			defer wgDiscover.Done()
+			discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
+			fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
+			discScanDone("passivedns", fs)
+			batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
+		}()
 
-	// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
-	wgDiscover.Add(1)
-	go func() {
-		defer wgDiscover.Done()
-		subfinderFlags := "-silent -passive"
-		if isDeepOrAuthorized(subdomainScanType) {
-			subfinderFlags = "-silent" // active: DNS resolution + all sources
-		}
-		discScanStart("subdomain", fmt.Sprintf("crt.sh *.%s  +  subfinder -d %s %s", rootDomain, rootDomain, subfinderFlags))
-		fs, _ := m.subdomainScanner.Run(ctx, rootDomain, subdomainScanType)
-		discScanDone("subdomain", fs)
-		batchResults <- discoveryBatch{findings: fs, source: "subdomain"}
-	}()
+		// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
+		// TODO: Add recursive subdomain discovery — after initial enumeration,
+		// re-run discovery on each discovered subdomain to find sub-subdomains
+		// (e.g. dev.api.example.com). Gate on ScanDeep to avoid noise in surface mode.
+		wgDiscover.Add(1)
+		go func() {
+			defer wgDiscover.Done()
+			subfinderFlags := "-silent -passive"
+			if isDeepOrAuthorized(subdomainScanType) {
+				subfinderFlags = "-silent" // active: DNS resolution + all sources
+			}
+			discScanStart("subdomain", fmt.Sprintf("crt.sh *.%s  +  subfinder -d %s %s", rootDomain, rootDomain, subfinderFlags))
+			fs, _ := m.subdomainScanner.Run(ctx, rootDomain, subdomainScanType)
+			discScanDone("subdomain", fs)
+			batchResults <- discoveryBatch{findings: fs, source: "subdomain"}
+		}()
+	}
 
 	// Close the channel when all discovery goroutines finish — in a separate
 	// goroutine so that processing of each batch can begin as soon as it
 	// arrives (e.g. passivedns completes in seconds; subfinder may take minutes).
+	// For IP targets, no goroutines were launched, so this closes immediately.
 	go func() {
 		wgDiscover.Wait()
 		close(batchResults)
@@ -782,6 +790,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		go func() {
 			defer wgStream.Done()
 			defer func() { <-streamSem }()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("beacon: launchAssetScan goroutine panic on %s (recovered): %v", asset, r)
+					debug.PrintStack()
+				}
+			}()
 			if input.Progress != nil {
 				input.Progress(module.ProgressEvent{
 					Phase:       "scanning",
@@ -833,37 +847,42 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	launchAssetScan(rootDomain)
 
 	// Start WHOIS and BGP in parallel with discovery — no need to wait.
+	// Skip for IP/localhost targets: WHOIS on IPs returns hosting provider info
+	// (not useful), BGP requires a domain for ASN lookup, AXFR requires NS records.
 	var wgRoot sync.WaitGroup
 	var bgpFindings []finding.Finding
 	var bgpMu sync.Mutex
 
-	wgRoot.Add(1)
-	go func() {
-		defer wgRoot.Done()
-		discScanStart("whois", fmt.Sprintf("RDAP whois lookup for %s", rootDomain))
-		fs, _ := m.whoisScanner.Run(ctx, rootDomain, scanType)
-		discScanDone("whois", fs)
-		appendFindings(fs)
-	}()
-	wgRoot.Add(1)
-	go func() {
-		defer wgRoot.Done()
-		discScanStart("bgp", fmt.Sprintf("bgpview.io  ASN + prefix lookup for %s  →  ip-api.com reverse ASN", rootDomain))
-		fs, _ := m.bgpScanner.Run(ctx, rootDomain, scanType)
-		bgpMu.Lock()
-		bgpFindings = fs
-		bgpMu.Unlock()
-		discScanDone("bgp", fs)
-		appendFindings(fs)
-	}()
+	if !skipDiscovery {
+		wgRoot.Add(1)
+		go func() {
+			defer wgRoot.Done()
+			discScanStart("whois", fmt.Sprintf("RDAP whois lookup for %s", rootDomain))
+			fs, _ := m.whoisScanner.Run(ctx, rootDomain, scanType)
+			discScanDone("whois", fs)
+			appendFindings(fs)
+		}()
+		wgRoot.Add(1)
+		go func() {
+			defer wgRoot.Done()
+			discScanStart("bgp", fmt.Sprintf("bgpview.io  ASN + prefix lookup for %s  →  ip-api.com reverse ASN", rootDomain))
+			fs, _ := m.bgpScanner.Run(ctx, rootDomain, scanType)
+			bgpMu.Lock()
+			bgpFindings = fs
+			bgpMu.Unlock()
+			discScanDone("bgp", fs)
+			appendFindings(fs)
+		}()
+	}
 
 	// Zone transfer runs concurrently with discovery too.
 	var axfrAssets []string
 	var wgAXFR sync.WaitGroup
-	wgAXFR.Add(1)
-	go func() {
-		defer wgAXFR.Done()
-		discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
+	if !skipDiscovery {
+		wgAXFR.Add(1)
+		go func() {
+			defer wgAXFR.Done()
+			discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
 		axfrFinding, axfrHosts := dns.ZoneTransferDiscovery(ctx, rootDomain, rootDomain)
 		var axfrFindings []finding.Finding
 		if axfrFinding != nil {
@@ -892,6 +911,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			launchAssetScan(h)
 		}
 	}()
+	} // end if !skipDiscovery (AXFR)
 
 	discStart := time.Now()
 	// ── Improvement 1 (continued): Process batches as they arrive ───────────
@@ -948,6 +968,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 	discDuration := time.Since(discStart)
+	sl.PhaseComplete("discovery", rootDomain, discDuration, fmt.Sprintf("%d assets", len(assets)))
 
 	// Update the discovery cache with all discovered subdomains.
 	if discoveryCache != nil {
@@ -1117,6 +1138,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 
 	wgStream.Wait()
 	scanDuration := time.Since(scanStart)
+	sl.PhaseComplete("scan_all_assets", rootDomain, scanDuration, fmt.Sprintf("%d assets", len(assets)))
 
 	// ── Crawler-discovered hostname expansion ──────────────────────────────────
 	// The katana crawler discovers URLs across the scanned assets. Any hostname
@@ -1124,8 +1146,8 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// we missed during passive enumeration. Scan them now (surface pass only —
 	// they were already crawled from their parent asset).
 	// Cap at 20 new hosts to avoid runaway expansion from link-rich pages.
-	const maxCrawlExpansion = 20
-	if len(assets) < m.maxAssets {
+	const maxCrawlExpansion = 50
+	if len(assets) < m.maxAssets && !skipDiscovery {
 		crawlCandidates := extractCrawlHostnames(rootDomain, allFindings, seen)
 		if len(crawlCandidates) > maxCrawlExpansion {
 			crawlCandidates = crawlCandidates[:maxCrawlExpansion]
@@ -1155,6 +1177,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			go func() {
 				defer wgCrawl.Done()
 				defer func() { <-streamSem }()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("beacon: crawl expansion goroutine panic on %s (recovered): %v", asset, r)
+						debug.PrintStack()
+					}
+				}()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1199,6 +1227,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			go func() {
 				defer wgHarvester.Done()
 				defer func() { <-streamSem }()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("beacon: harvester expansion goroutine panic on %s (recovered): %v", asset, r)
+						debug.PrintStack()
+					}
+				}()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1344,12 +1378,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	// Safety gate: drop ModeDeep findings that leaked into a surface scan
+	// Safety gate: drop ModeDeep findings that leaked into a surface scan.
 	if scanType == module.ScanSurface {
 		filtered := allFindings[:0]
 		for _, f := range allFindings {
 			if finding.Meta(f.CheckID).Mode == finding.ModeDeep {
-				continue // BUG: deep check emitted during surface scan — drop it
+				continue
 			}
 			filtered = append(filtered, f)
 		}
@@ -1453,6 +1487,18 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 
 	// ── Active attack path chaining (ScanAuthorized only) ───────────────────
 	// The chain engine takes completed findings and actively exploits one to
+	// ── Correlation engine: detect compound vulnerabilities ──────────────
+	// Runs after all scanners complete. Analyzes the full findings set to
+	// identify dangerous combinations (e.g., missing HSTS + insecure cookie
+	// = session hijack chain).
+	{
+		corrScanner := correlation.New()
+		corrScanner.SetFindings(allFindings)
+		if corrFindings, err := corrScanner.Run(ctx, rootDomain, scanType); err == nil {
+			allFindings = append(allFindings, corrFindings...)
+		}
+	}
+
 	// discover the next. Only runs in ScanAuthorized mode — New() enforces this.
 	if chainEng, err := chainengine.New(scanType); err == nil {
 		for _, f := range allFindings {
@@ -1525,7 +1571,14 @@ func deduplicateFindings(findings []finding.Finding) []finding.Finding {
 // against a single asset. No evidence collection, playbook matching, or
 // convergence loops — just the bare scanner runs. Used by --scanners mode
 // for targeted testing (e.g. Drydock).
-func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) []finding.Finding {
+func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) (results []finding.Finding) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: runFilteredScanners panic on %s (recovered): %v", asset, r)
+			debug.PrintStack()
+		}
+	}()
+
 	// Inject auth context for filtered scanner runs (--scanners mode).
 	// The normal runAsset path does this after evidence collection, but the
 	// filtered path skips evidence — auth must be injected here.
@@ -1564,8 +1617,24 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 		}
 	}
 
+	// Always run portscan first as a prerequisite when it's not in the filter
+	// but other scanners need HTTP service discovery to function.
+	hasPortscan := false
+	for _, name := range m.scannerFilter {
+		if name == "portscan" {
+			hasPortscan = true
+			break
+		}
+	}
 	var findings []finding.Finding
 	var mu sync.Mutex
+	if !hasPortscan {
+		if ps, ok := m.scanners["portscan"]; ok {
+			result := scan.Execute(ps, ctx, asset, scanType)
+			findings = append(findings, result.Findings...)
+		}
+	}
+
 	var wg sync.WaitGroup
 
 	for _, name := range m.scannerFilter {
@@ -1585,6 +1654,12 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("beacon: filtered scanner %s panic on %s (recovered): %v", name, asset, r)
+					debug.PrintStack()
+				}
+			}()
 			result := scan.Execute(scanner, ctx, asset, scanType)
 			mu.Lock()
 			findings = append(findings, result.Findings...)
@@ -1614,7 +1689,14 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 // expandSeen is a shared set (protected by expandSeenMu) that prevents two
 // concurrent runAsset goroutines from independently discovering and scanning
 // the same cert-SAN / port-service / body-subdomain child asset.
-func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanType module.ScanType, scanRunID string, depth int, progressFn module.ProgressFunc, expandSeen map[string]bool, expandSeenMu *sync.Mutex) []finding.Finding {
+func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanType module.ScanType, scanRunID string, depth int, progressFn module.ProgressFunc, expandSeen map[string]bool, expandSeenMu *sync.Mutex) (results []finding.Finding) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: runAsset panic on %s (recovered): %v", asset, r)
+			debug.PrintStack()
+		}
+	}()
+
 	// ── Fast path: --scanners filter ────────────────────────────────────────
 	// When a scanner filter is active, skip evidence collection, playbook
 	// matching, Phase A intelligence, and convergence loops. Just run the
@@ -1622,6 +1704,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if len(m.scannerFilter) > 0 {
 		return m.runFilteredScanners(ctx, asset, scanType, scanRunID, progressFn)
 	}
+
+	asl := scanlog.FromContext(ctx)
+	assetStart := time.Now()
 
 	// Collect evidence — emit fingerprint event when interesting signals are found
 	if progressFn != nil {
@@ -1632,7 +1717,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			ScannerCmd:  "HTTP probe + DNS + TLS fingerprint → " + asset,
 		})
 	}
+	classifyStart := time.Now()
 	ev := classify.Collect(ctx, asset)
+	asl.PhaseComplete("classify", asset, time.Since(classifyStart), "")
 
 	// AI fingerprint gap-filling + scanner suggestion.
 	// When deterministic rules leave key fields empty, the classifier fills them,
@@ -1683,14 +1770,16 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// before sending additional probes.
 	evasionMonitor := evasion.NewMonitor(m.evasionStrategy)
 	adaptiveRate := evasion.NewAdaptiveRate(0, 30*time.Second) // start unlimited, max 30s between requests
+	hostTimeouts := scan.NewHostTimeoutTracker()
 	baseTransport := httpClient.Transport
 	if baseTransport == nil {
 		baseTransport = http.DefaultTransport
 	}
 	httpClient.Transport = &evasion.MonitoredTransport{
-		Base:    baseTransport,
-		Monitor: evasionMonitor,
-		Rate:    adaptiveRate,
+		Base:         baseTransport,
+		Monitor:      evasionMonitor,
+		Rate:         adaptiveRate,
+		HostTimeouts: hostTimeouts,
 	}
 	ctx = evasion.WithMonitor(ctx, evasionMonitor)
 
@@ -1729,7 +1818,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// Inject ScanContext — provides typed accessors (asset, scanType, HTTP client,
 	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
 	// for backward compatibility.
-	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev).WithHostTimeoutTracker(hostTimeouts)
 	if authHeaders != nil {
 		sctx.WithAuthHeaders(authHeaders)
 	}
@@ -1871,7 +1960,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	//                  guessing defaults, reducing false negatives on non-standard paths
 	//   • authsurface:  login form detection → auth pipeline acquires session before
 	//                  Phase B so all subsequent scanners run authenticated
-	phaseANames := []string{"wafdetect", "portscan", "aidetect", "authsurface"}
+	phaseAStart := time.Now()
+	// aidetect is conditionally launched after portscan — only if AI-related
+	// ports are open. This avoids wasting time on every asset.
+	phaseANames := []string{"wafdetect", "portscan", "authsurface"}
 	phaseADone := make(map[string]bool, len(phaseANames))
 	var phaseAMu sync.Mutex
 	var phaseAFindings []finding.Finding
@@ -1907,7 +1999,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	// Stream portscan results: extract open ports as soon as portscan finishes,
-	// overlapping with wafdetect/aidetect/authsurface still running.
+	// overlapping with wafdetect/authsurface still running.
 	if ch, ok := phaseADoneCh["portscan"]; ok {
 		<-ch
 	}
@@ -1917,8 +2009,32 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	openPorts := extractOpenPorts(phaseAFindings)
 	phaseAMu.Unlock()
 
+	// Conditionally launch aidetect only if AI-related ports are open.
+	// This avoids running AI endpoint probing on every asset when the vast
+	// majority have no AI services.
+	if planContains(plan.Scanners, "aidetect") {
+		if portInSet(openPorts, 11434, 7860, 8000, 5000) || ev.LLMProvider != "" || len(ev.AIEndpoints) > 0 {
+			if aiSc, ok := m.scanners["aidetect"]; ok {
+				phaseADone["aidetect"] = true
+				doneCh := make(chan struct{})
+				phaseADoneCh["aidetect"] = doneCh
+				phaseAWg.Add(1)
+				go func() {
+					defer phaseAWg.Done()
+					result := scan.Execute(aiSc, ctx, asset, scanType)
+					phaseAMu.Lock()
+					phaseAFindings = append(phaseAFindings, result.Findings...)
+					phaseAMu.Unlock()
+					close(doneCh)
+					m.saveScanMetricElapsed(ctx, scanRunID, asset, "aidetect", result.Metrics.Duration, result.Findings, result.Error)
+				}()
+			}
+		}
+	}
+
 	// Now wait for the remaining Phase A scanners to finish.
 	phaseAWg.Wait()
+	asl.PhaseComplete("phaseA", asset, time.Since(phaseAStart), fmt.Sprintf("%d findings", len(phaseAFindings)))
 
 	// Extract WAF, origin IP, and AI endpoint intelligence from all Phase A results.
 	behindWAF, wafVendor := extractWAFInfo(phaseAFindings)
@@ -2117,13 +2233,14 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 					baseTransport = http.DefaultTransport
 				}
 				httpClient.Transport = &evasion.MonitoredTransport{
-					Base:    baseTransport,
-					Monitor: evasionMonitor,
-					Rate:    adaptiveRate,
+					Base:         baseTransport,
+					Monitor:      evasionMonitor,
+					Rate:         adaptiveRate,
+					HostTimeouts: hostTimeouts,
 				}
 				// Rebuild scan context with the authenticated client.
 				ctx = authctx.WithHTTPClient(ctx, httpClient)
-				sctx = scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+				sctx = scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev).WithHostTimeoutTracker(hostTimeouts)
 				if sessionInfo != nil && len(sessionInfo.Headers) > 0 {
 					sctx.WithAuthHeaders(sessionInfo.Headers)
 				}
@@ -2186,6 +2303,37 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	ctx = context.WithValue(ctx, module.CrawlFeedCloserKey, closeCrawlFeed)
 
 	// ── Phase B: Remaining scanners (concurrent) ──────────────────────────────
+	phaseBStart := time.Now()
+
+	// Select only scanners relevant to what Phase A discovered.
+	// This is an additional filter on top of playbook selection and scannerSkipReason.
+	assetIsIP := isIPOrLocalhost(asset) || net.ParseIP(strings.Split(asset, ":")[0]) != nil
+	relevantScanners := selectScanners(phaseAFindings, &ev, openPorts, assetIsIP)
+
+	// Build fingerprint-driven nuclei tags from Phase A evidence.
+	// This restricts nuclei to templates relevant to the identified services,
+	// cutting scan time from 4+ minutes (7000 templates) to seconds.
+	nucleiTags := buildNucleiTags(&ev, phaseAFindings)
+	if len(nucleiTags) > 0 {
+		ctx = nuclei.WithTags(ctx, nucleiTags)
+	}
+
+	if progressFn != nil {
+		var skippedByRelevance int
+		for _, name := range plan.Scanners {
+			if !phaseADone[name] && !relevantScanners[name] {
+				skippedByRelevance++
+			}
+		}
+		if skippedByRelevance > 0 {
+			progressFn(module.ProgressEvent{
+				Phase:       "scanner_relevance",
+				ActiveAsset: asset,
+				StatusMsg:   fmt.Sprintf("Phase A relevance filter: %d/%d scanners relevant, %d skipped", len(plan.Scanners)-skippedByRelevance, len(plan.Scanners), skippedByRelevance),
+			})
+		}
+	}
+
 	// httpDependentScanners produce zero useful findings on assets with no web
 	// server. All active HTTP probers are listed here to avoid wasted connections.
 	httpDependentScanners := map[string]bool{
@@ -2196,6 +2344,12 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		"clickjacking": true, "autoprobe": true, "websocket": true,
 		"exposedfiles": true, "apiversions": true,
 		"proxychain": true, "cacheprobe": true,
+		// Injection/fuzzing scanners — require a web server to probe.
+		"cmdinj": true, "sqli": true, "nosqli": true, "ssti": true,
+		"crlf": true, "openredir": true, "hpp": true, "xxe": true,
+		"rxss": true, "ssrf": true, "pathtraversal": true,
+		"elinjection": true, "pdfssrf": true, "apifuzz": true,
+		"authfuzz": true,
 	}
 
 	var findings []finding.Finding
@@ -2214,9 +2368,22 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		if phaseADone[name] {
 			continue // already ran in Phase A
 		}
+		// Bail early if the host has been marked unresponsive due to
+		// consecutive timeouts. No point spawning goroutines for probes
+		// that will immediately fail.
+		if hostTimeouts.ShouldSkip(asset) {
+			m.saveSkipMetric(ctx, scanRunID, asset, name, "host_timeout_bail")
+			continue
+		}
 		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 		if skipReason != "" {
 			m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
+			continue
+		}
+		// Phase A relevance filter: skip scanners that aren't relevant to
+		// the services/signals discovered during Phase A reconnaissance.
+		if !relevantScanners[name] {
+			m.saveSkipMetric(ctx, scanRunID, asset, name, "phase_a_not_relevant")
 			continue
 		}
 		name, scanner := name, m.scanners[name]
@@ -2418,6 +2585,20 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	wg.Wait()
+	asl.PhaseComplete("phaseB", asset, time.Since(phaseBStart), fmt.Sprintf("%d findings so far", len(findings)))
+
+	// Log (but don't emit a finding) when a host is bailed on due to timeouts.
+	// This is scanner metadata, not a vulnerability — it shouldn't appear in reports.
+	if hostTimeouts.ShouldSkip(asset) {
+		asl.Debug("host_timeout_bail", "asset", asset, "threshold", scan.HostTimeoutThreshold)
+		if progressFn != nil {
+			progressFn(module.ProgressEvent{
+				Phase:       "host_bail",
+				ActiveAsset: asset,
+				StatusMsg:   fmt.Sprintf("%s bailed after %d+ consecutive timeouts — remaining scanners skipped", asset, scan.HostTimeoutThreshold),
+			})
+		}
+	}
 
 	// ── AI-classified unknown technology finding ──────────────────────────────
 	// Emitted when deterministic rules couldn't classify the asset and AI was
@@ -2457,6 +2638,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 		if len(crawlURLs) > 0 {
+			// Filter out static assets (CSS, JS, images, fonts, etc.) before
+			// extracting parameters — these are never injectable and just waste
+			// time in downstream injection scanners.
+			crawlURLs = paramdiscovery.FilterFuzzTargets(crawlURLs)
 			for path, params := range paramdiscovery.ExtractFromURLs(crawlURLs) {
 				allParams[path] = params
 			}
@@ -2486,7 +2671,40 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}
 	}
 
+	// ── Post-crawler re-evaluation ───────────────────────────────────────────
+	// The crawler discovers URLs that may reveal services invisible to Phase A
+	// (GraphQL endpoints, API versions, WebSocket, admin panels). Expand the
+	// relevant scanner set so the convergence loop can pick them up.
+	{
+		var postCrawlURLs []string
+		mu.Lock()
+		crawlFindings := make([]finding.Finding, 0)
+		for _, f := range findings {
+			if f.CheckID == finding.CheckAssetCrawlEndpoints {
+				crawlFindings = append(crawlFindings, f)
+				switch v := f.Evidence["endpoints"].(type) {
+				case []string:
+					postCrawlURLs = append(postCrawlURLs, v...)
+				case []interface{}:
+					for _, item := range v {
+						if s, ok := item.(string); ok {
+							postCrawlURLs = append(postCrawlURLs, s)
+						}
+					}
+				}
+			}
+		}
+		mu.Unlock()
+
+		if expanded := expandScannersFromCrawl(crawlFindings, postCrawlURLs); len(expanded) > 0 {
+			for name := range expanded {
+				relevantScanners[name] = true
+			}
+		}
+	}
+
 	// ── Evidence convergence loop ─────────────────────────────────────────────
+	convergenceStart := time.Now()
 	// After Phase B completes, extract new check IDs from findings and re-match
 	// playbooks. Run any newly matched scanners that haven't run yet. Also runs
 	// AI-suggested scanners on the first round.
@@ -2571,6 +2789,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 					m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
 					continue
 				}
+				// Phase A relevance filter (same as Phase B main loop).
+				if !relevantScanners[name] {
+					m.saveSkipMetric(ctx, scanRunID, asset, name, "phase_a_not_relevant")
+					continue
+				}
 				name, convScanner := name, convScanner
 				convWg.Add(1)
 				go func() {
@@ -2634,6 +2857,8 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		findings = append(findings, monitorFindings...)
 	}
 
+	asl.PhaseComplete("convergence", asset, time.Since(convergenceStart), "")
+
 	// ── Post-scan classify helpers (after wg.Wait — no concurrent writes) ─────
 	// Run after goroutines finish to avoid data races on the findings slice.
 	findings = append(findings, classify.CheckVersions(ev, asset)...)
@@ -2673,7 +2898,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// All candidates are dispatched concurrently (bounded by expandSem) so a
 	// cert with 20 SANs doesn't block behind a sequential 120-second scan chain.
 	// Only runs at depth 0 to prevent infinite recursion.
-	if depth == 0 {
+	// Skip for IP/localhost targets — expansion creates synthetic subdomains
+	// like admin.localhost, api.localhost that all resolve to 127.0.0.1 and
+	// produce duplicate findings against the same service.
+	if depth == 0 && !isIPOrLocalhost(rootDomain) {
 		// Collect candidates, claiming each in the shared expandSeen map atomically
 		// so concurrent parent goroutines don't double-scan the same child asset.
 		claimExpand := func(candidate string) bool {
@@ -2920,6 +3148,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}()
 	}
 
+	asl.PhaseComplete("asset_total", asset, time.Since(assetStart), fmt.Sprintf("%d findings", len(findings)))
 	return findings
 }
 
@@ -2963,44 +3192,66 @@ func expandPattern(pattern, domain string) string {
 // maxIPsPerScan IPs, and HTTP-probes each one. Returns IPs that respond on
 // port 80 or 443.
 func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
-	const maxIPs = 4096
-	const concurrency = 20
+	const maxIPs = 16384
+	const concurrency = 200
 
 	var mu sync.Mutex
 	var liveIPs []string
 	seen := map[string]bool{}
 
+	// Try masscan first — scans ALL 65535 ports at wire speed.
+	// Falls back to TCP connect on known ports if masscan is unavailable.
+	masscanBin := "masscan"
+	if _, err := exec.LookPath(masscanBin); err != nil {
+		masscanBin = ""
+	}
+	if masscanBin != "" {
+		for _, cidr := range cidrs {
+			results, err := portscan.RunMasscan(ctx, cidr, "0-65535", masscanBin)
+			if err == nil && len(results) > 0 {
+				for _, hostPort := range results {
+					host, _, _ := net.SplitHostPort(hostPort)
+					if host != "" && !seen[host] {
+						seen[host] = true
+						liveIPs = append(liveIPs, host)
+					}
+				}
+			}
+		}
+		if len(liveIPs) > 0 {
+			return liveIPs
+		}
+		// masscan found nothing or failed — fall through to TCP connect
+	}
+
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	// Fallback: TCP connect probe on all known ports (~130 ports).
+	// Slower than masscan but doesn't need root/raw sockets.
+	probePorts := portscan.AllKnownPorts()
 
 	probe := func(ip string) {
-		for _, scheme := range []string{"https", "http"} {
-			url := scheme + "://" + ip
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-			if err != nil {
-				continue
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				continue
-			}
-			_ = resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode <= 599 {
-				mu.Lock()
-				if !seen[ip] {
-					seen[ip] = true
-					liveIPs = append(liveIPs, ip)
-				}
-				mu.Unlock()
+		dialer := &net.Dialer{Timeout: 2 * time.Second}
+		for _, port := range probePorts {
+			select {
+			case <-ctx.Done():
 				return
+			default:
 			}
+			addr := fmt.Sprintf("%s:%d", ip, port)
+			conn, err := dialer.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				continue
+			}
+			_ = conn.Close()
+			mu.Lock()
+			if !seen[ip] {
+				seen[ip] = true
+				liveIPs = append(liveIPs, ip)
+			}
+			mu.Unlock()
+			return
 		}
 	}
 
@@ -3058,6 +3309,21 @@ func incrementNetIP(ip net.IP) {
 			break
 		}
 	}
+}
+
+// isIPOrLocalhost returns true when the target is an IP address or localhost.
+// These targets have no subdomains, so subdomain discovery, WHOIS, BGP, DNS
+// AXFR, and passive DNS can all be skipped — saving 1-2s per scan.
+func isIPOrLocalhost(domain string) bool {
+	// Strip port if present (e.g., "localhost:8080" → "localhost")
+	host := domain
+	if h, _, err := net.SplitHostPort(domain); err == nil {
+		host = h
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	return net.ParseIP(host) != nil
 }
 
 func isValidHostname(s string) bool {
@@ -4057,4 +4323,582 @@ var injectionScannerNames = map[string]bool{
 	"sqli": true, "nosqli": true, "rxss": true, "ssrf": true,
 	"cmdinj": true, "ssti": true, "xxe": true, "pathtraversal": true,
 	"pdfssrf": true, "elinjection": true,
+}
+
+// ── Phase B relevance filtering ─────────────────────────────────────────────
+// selectScanners analyses Phase A findings and classify evidence to determine
+// which Phase B scanners are relevant to the target. Returns a set of scanner
+// names that should run. Scanners NOT in this set can be skipped — they would
+// produce zero findings or waste time probing services that don't exist.
+//
+// This is an ADDITIONAL filter on top of playbook-selected scanners and the
+// existing scannerSkipReason checks (noHTTP, WAF, service-class). If a
+// playbook says "run jwt" but Phase A found no web server, this filter skips
+// it.
+// buildNucleiTags derives nuclei template tags from Phase A fingerprinting.
+// Instead of running all ~7000 templates (4+ minutes), nuclei runs only
+// templates tagged for the identified services (seconds).
+// Returns nil if no specific services were identified (run all templates).
+func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []string {
+	tags := map[string]bool{}
+
+	// Always include authentication-bypass checks.
+	tags["unauth"] = true
+
+	// Framework / CMS from classify evidence.
+	fw := strings.ToLower(ev.Framework)
+	for _, mapping := range []struct{ keyword, tag string }{
+		{"wordpress", "wordpress"}, {"wp-", "wordpress"},
+		{"drupal", "drupal"}, {"joomla", "joomla"},
+		{"laravel", "laravel"}, {"symfony", "symfony"},
+		{"django", "django"}, {"flask", "flask"},
+		{"rails", "rails"}, {"spring", "spring"},
+		{"express", "express"}, {"next.js", "nextjs"},
+		{"react", "react"}, {"angular", "angular"},
+		{"grafana", "grafana"}, {"kibana", "kibana"},
+		{"jenkins", "jenkins"}, {"gitlab", "gitlab"},
+		{"gitea", "gitea"}, {"sonarqube", "sonarqube"},
+		{"tomcat", "tomcat"}, {"apache", "apache"},
+		{"nginx", "nginx"}, {"iis", "iis"},
+		{"keycloak", "keycloak"}, {"vault", "vault"},
+		{"consul", "consul"}, {"traefik", "traefik"},
+		{"portainer", "portainer"}, {"harbor", "harbor"},
+		{"airflow", "airflow"}, {"jupyter", "jupyter"},
+		{"wildfly", "jboss"}, {"jboss", "jboss"},
+		{"solr", "solr"}, {"nextcloud", "nextcloud"},
+		{"ghost", "ghost"}, {"pgadmin", "pgadmin"},
+		{"moodle", "moodle"}, {"magento", "magento"},
+		{"phpmyadmin", "phpmyadmin"}, {"roundcube", "roundcube"},
+		{"confluence", "confluence"}, {"jira", "jira"},
+		{"bitbucket", "bitbucket"}, {"bamboo", "bamboo"},
+		{"zabbix", "zabbix"}, {"nagios", "nagios"},
+		{"splunk", "splunk"}, {"elastic", "elastic"},
+		{"opensearch", "opensearch"}, {"argocd", "argocd"},
+		{"rancher", "rancher"}, {"verdaccio", "verdaccio"},
+		{"redmine", "redmine"}, {"mantis", "mantis"},
+		{"odoo", "odoo"}, {"prestashop", "prestashop"},
+		{"verdaccio", "verdaccio"}, {"loki", "loki"},
+		{"cadvisor", "cadvisor"}, {"clickhouse", "clickhouse"},
+		{"mattermost", "mattermost"}, {"rocketchat", "rocketchat"},
+		{"haproxy", "haproxy"}, {"squid", "squid"},
+		{"metabase", "metabase"}, {"superset", "superset"},
+	} {
+		if strings.Contains(fw, mapping.keyword) {
+			tags[mapping.tag] = true
+		}
+	}
+
+	// Server header from classify.
+	if sv, ok := ev.ServiceVersions["web_server"]; ok {
+		svLow := strings.ToLower(sv)
+		for _, mapping := range []struct{ keyword, tag string }{
+			{"apache", "apache"}, {"nginx", "nginx"}, {"iis", "iis"},
+			{"tomcat", "tomcat"}, {"caddy", "caddy"}, {"lighttpd", "lighttpd"},
+		} {
+			if strings.Contains(svLow, mapping.keyword) {
+				tags[mapping.tag] = true
+			}
+		}
+	}
+
+	// Service identifications from portscan — check both service_identified
+	// and other port.* check IDs that indicate specific services.
+	for _, f := range phaseAFindings {
+		cid := string(f.CheckID)
+		if f.CheckID != finding.CheckPortServiceIdentified &&
+			!strings.HasPrefix(cid, "port.") {
+			continue
+		}
+		svc, _ := f.Evidence["service"].(string)
+		// Also check the check ID itself for service hints.
+		if svc == "" {
+			// Extract service name from check ID: port.redis_unauthenticated → redis
+			if strings.HasPrefix(cid, "port.") {
+				parts := strings.SplitN(cid[5:], "_", 2)
+				svc = parts[0]
+			}
+		}
+		svcLow := strings.ToLower(svc)
+		for _, mapping := range []struct{ keyword, tag string }{
+			{"elasticsearch", "elasticsearch"}, {"elastic", "elastic"},
+			{"redis", "redis"}, {"valkey", "redis"}, {"mongodb", "mongodb"}, {"mongo", "mongodb"},
+			{"mysql", "mysql"}, {"postgres", "postgres"}, {"mssql", "mssql"},
+			{"couchdb", "couchdb"}, {"memcached", "memcached"},
+			{"rabbitmq", "rabbitmq"}, {"amqp", "rabbitmq"},
+			{"kafka", "kafka"}, {"zookeeper", "zookeeper"},
+			{"docker", "docker"}, {"kubernetes", "kubernetes"},
+			{"prometheus", "prometheus"}, {"grafana", "grafana"},
+			{"jenkins", "jenkins"}, {"gitlab", "gitlab"},
+			{"vault", "vault"}, {"consul", "consul"},
+			{"influxdb", "influxdb"}, {"nats", "nats"},
+			{"etcd", "etcd"}, {"minio", "minio"},
+			{"solr", "solr"}, {"cassandra", "cassandra"},
+			{"oracle", "oracle"}, {"ftp", "ftp"}, {"ssh", "ssh"},
+			{"smtp", "smtp"}, {"ldap", "ldap"},
+		} {
+			if strings.Contains(svcLow, mapping.keyword) {
+				tags[mapping.tag] = true
+			}
+		}
+	}
+
+	// Page title hints — classify extracts the HTML <title> tag.
+	if ev.Title != "" {
+		titleLow := strings.ToLower(ev.Title)
+		for _, mapping := range []struct{ keyword, tag string }{
+			{"wildfly", "jboss"}, {"jboss", "jboss"},
+			{"solr", "solr"}, {"nextcloud", "nextcloud"},
+			{"ghost", "ghost"}, {"pgadmin", "pgadmin"},
+			{"phpmyadmin", "phpmyadmin"}, {"adminer", "adminer"},
+			{"grafana", "grafana"}, {"kibana", "kibana"},
+			{"jenkins", "jenkins"}, {"gitlab", "gitlab"},
+			{"gitea", "gitea"}, {"portainer", "portainer"},
+			{"sonarqube", "sonarqube"}, {"confluence", "confluence"},
+			{"jira", "jira"}, {"zabbix", "zabbix"},
+			{"nagios", "nagios"}, {"splunk", "splunk"},
+			{"harbor", "harbor"}, {"argocd", "argocd"},
+			{"rancher", "rancher"}, {"airflow", "airflow"},
+			{"moodle", "moodle"}, {"roundcube", "roundcube"},
+			{"vault", "vault"}, {"consul", "consul"},
+			{"cadvisor", "cadvisor"}, {"clickhouse", "clickhouse"},
+			{"loki", "loki"}, {"mattermost", "mattermost"},
+			{"verdaccio", "verdaccio"}, {"metabase", "metabase"},
+		} {
+			if strings.Contains(titleLow, mapping.keyword) {
+				tags[mapping.tag] = true
+			}
+		}
+	}
+
+	// Favicon/product hints.
+	if ev.FaviconProduct != "" {
+		fp := strings.ToLower(ev.FaviconProduct)
+		for _, kw := range []string{"grafana", "jenkins", "gitlab", "kibana", "sonarqube", "portainer", "consul", "vault"} {
+			if strings.Contains(fp, kw) {
+				tags[kw] = true
+			}
+		}
+	}
+
+	if len(tags) <= 1 {
+		// Only generic tags — no specific services identified.
+		// Return nil to run all templates (slower but complete).
+		return nil
+	}
+
+	result := make([]string, 0, len(tags))
+	for t := range tags {
+		result = append(result, t)
+	}
+	return result
+}
+
+func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, openPorts map[int]string, isIP bool) map[string]bool {
+	// ── Detect service categories from Phase A findings ──────────────────
+	var (
+		hasHTTP       bool
+		hasSSH        bool
+		hasDB         bool
+		hasMQ         bool
+		hasDocker     bool
+		hasK8s        bool
+		hasAI         bool
+		hasWeb3       bool
+		hasCICD       bool
+		hasMonitoring bool
+		hasMail       bool
+	)
+
+	// HTTP: classify evidence already tells us (StatusCode > 0 means HTTP responded).
+	hasHTTP = ev.StatusCode > 0
+
+	// Analyse Phase A check IDs for specific service signals.
+	for _, f := range phaseAFindings {
+		cid := string(f.CheckID)
+		switch {
+		// SSH
+		case cid == "port.ssh_exposed":
+			hasSSH = true
+
+		// Databases
+		case cid == "port.database_exposed",
+			cid == "port.redis_unauthenticated",
+			cid == "port.elasticsearch_unauthenticated",
+			cid == "port.couchdb_unauthenticated",
+			cid == "port.memcached_unauthenticated",
+			cid == "port.influxdb_exposed":
+			hasDB = true
+
+		// Message queues
+		case cid == "port.amqp_exposed",
+			cid == "port.kafka_exposed",
+			cid == "port.zookeeper_exposed",
+			cid == "port.mqtt_exposed":
+			hasMQ = true
+
+		// Docker / container
+		case cid == "port.docker_unauthenticated":
+			hasDocker = true
+
+		// Kubernetes
+		case cid == "port.k8s_api_exposed",
+			cid == "port.kubelet_unauthenticated",
+			cid == "port.k8s_anonymous_rbac",
+			cid == "port.k8s_secrets_exposed",
+			cid == "port.k8s_istio_admin_exposed":
+			hasK8s = true
+
+		// AI / LLM
+		case cid == "port.ollama_exposed",
+			cid == "port.gradio_exposed":
+			hasAI = true
+
+		// Monitoring
+		case cid == "port.prometheus_unauthenticated",
+			cid == "port.splunk_mgmt_exposed":
+			hasMonitoring = true
+
+		// CI/CD
+		case cid == "port.jboss_management_exposed",
+			cid == "port.coldfusion_admin_exposed":
+			hasCICD = true
+
+		// Vault / infra
+		case cid == "port.vault_exposed",
+			cid == "port.vault_unsealed_no_auth":
+			hasDocker = true // infrastructure — same bucket
+
+		// HTTP from portscan: if portscan identified an HTTP service, enable
+		// HTTP scanners even if the classify probe failed (e.g. slow server).
+		case cid == "port.service_identified":
+			if svc, ok := f.Evidence["service"].(string); ok {
+				svcLower := strings.ToLower(svc)
+				if strings.Contains(svcLower, "http") || strings.Contains(svcLower, "nginx") ||
+					strings.Contains(svcLower, "apache") || strings.Contains(svcLower, "tomcat") ||
+					strings.Contains(svcLower, "iis") || strings.Contains(svcLower, "caddy") ||
+					strings.Contains(svcLower, "lighthttp") || strings.Contains(svcLower, "gunicorn") ||
+					strings.Contains(svcLower, "express") || strings.Contains(svcLower, "flask") ||
+					strings.Contains(svcLower, "django") || strings.Contains(svcLower, "rails") {
+					hasHTTP = true
+				}
+			}
+		}
+	}
+
+	// Evidence-driven signals.
+	if len(ev.AIEndpoints) > 0 || ev.LLMProvider != "" {
+		hasAI = true
+	}
+	if len(ev.Web3Signals) > 0 || len(ev.ContractAddresses) > 0 {
+		hasWeb3 = true
+	}
+	if ev.AuthSystem != "" {
+		// Auth system presence means auth scanners are relevant.
+	}
+	if ev.IsKubernetes {
+		hasK8s = true
+	}
+	if len(ev.MXRecords) > 0 || ev.MXProvider != "" {
+		hasMail = true
+	}
+
+	// FaviconProduct-based signals.
+	if ev.FaviconProduct != "" {
+		fp := strings.ToLower(ev.FaviconProduct)
+		switch {
+		case strings.Contains(fp, "jenkins"), strings.Contains(fp, "gitlab"),
+			strings.Contains(fp, "teamcity"), strings.Contains(fp, "bitbucket"):
+			hasCICD = true
+		case strings.Contains(fp, "grafana"), strings.Contains(fp, "kibana"),
+			strings.Contains(fp, "prometheus"), strings.Contains(fp, "jaeger"):
+			hasMonitoring = true
+		}
+	}
+
+	// Port-based service detection from openPorts map.
+	for port, svc := range openPorts {
+		svcLower := strings.ToLower(svc)
+		switch {
+		case port == 22 || strings.Contains(svcLower, "ssh"):
+			hasSSH = true
+		case port == 3306 || port == 5432 || port == 1433 || port == 1521 ||
+			port == 27017 || port == 6379 || port == 9200 || port == 5984 ||
+			port == 11211 || port == 8086:
+			hasDB = true
+		case port == 5672 || port == 15672 || port == 9092 || port == 2181 ||
+			port == 1883 || port == 4222:
+			hasMQ = true
+		case port == 2375 || port == 2376:
+			hasDocker = true
+		case port == 6443 || port == 10250 || port == 10255:
+			hasK8s = true
+		case port == 11434 || port == 7860:
+			hasAI = true
+		case port == 9090 || port == 3000 || port == 5601 || port == 16686:
+			hasMonitoring = true // Prometheus, Grafana, Kibana, Jaeger
+		case port == 25 || port == 587 || port == 465 || port == 143 || port == 993:
+			hasMail = true
+		case strings.Contains(svcLower, "jenkins") || strings.Contains(svcLower, "gitlab"):
+			hasCICD = true
+		}
+		// Suppress unused variable warnings.
+		_ = hasSSH
+		_ = hasMQ
+	}
+
+	// ── Build the relevant scanner set ──────────────────────────────────
+	relevant := make(map[string]bool, 64)
+
+	// Phase A scanners — always relevant (they already ran, but mark them
+	// so they pass through any "is this relevant?" check).
+	for _, name := range []string{"portscan", "wafdetect", "authsurface"} {
+		relevant[name] = true
+	}
+	// aidetect is only relevant when AI signals exist (ports, evidence).
+	if hasAI || portInSet(openPorts, 11434, 7860, 8000, 5000) {
+		relevant["aidetect"] = true
+	}
+
+	// Always run (truly universal, no service dependency).
+	// DNS is skipped for bare IPs — no DNS records to query.
+	relevant["tls"] = true
+	relevant["testssl"] = true
+	relevant["nuclei"] = true
+	if !isIP {
+		relevant["dns"] = true
+	}
+
+	// Domain-only scanners (skip for bare IPs).
+	if !isIP {
+		for _, name := range []string{
+			"assetintel", "dorks", "hibp", "favicon", "ctlog", "asnmap",
+			"harvester", "typosquat", "whois", "passivedns", "historicalurls",
+			"takeover", "email", "bgp",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Basic HTTP — lightweight checks for any web server.
+	if hasHTTP {
+		for _, name := range []string{
+			"secheaders", "cors", "cookie", "wellknown",
+			"httpmethods", "clickjacking", "hostheader", "webcontent",
+			"exposedfiles", "robotsmap", "errordisclosure", "ratelimit",
+		} {
+			relevant[name] = true
+		}
+		// Screenshots are only useful for domain-based targets, not bare IPs.
+		if !isIP {
+			relevant["screenshot"] = true
+		}
+	}
+
+	// Web application — deeper checks only if a real web app is detected.
+	// A default "Welcome to nginx!" page is NOT a web app. We need evidence
+	// of dynamic content: framework, responding paths, cookies, auth, or JS.
+	hasWebApp := hasHTTP && (ev.Framework != "" ||
+		len(ev.RespondingPaths) > 0 ||
+		len(ev.CookieNames) > 0 ||
+		ev.AuthSystem != "" ||
+		ev.AuthScheme != "")
+	if hasWebApp {
+		for _, name := range []string{
+			"crawler", "swagger", "jsendpoints", "apiversions",
+			"depconf", "cspaudit", "dlp", "autoprobe", "cacheprobe",
+			"h2c", "http2", "verbtamper", "vhost", "smuggling",
+			"cms-plugins", "passiveinject",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Specialized HTTP — only when specific tech detected.
+	frameworkLower := strings.ToLower(ev.Framework)
+	if strings.Contains(frameworkLower, "graphql") {
+		relevant["graphql"] = true
+	}
+	if strings.Contains(frameworkLower, "grpc") {
+		relevant["grpcreflect"] = true
+	}
+	if ev.IsReverseProxy || ev.InfraLayer != "" {
+		relevant["cdnbypass"] = true
+	}
+	// gateway and proxychain are expensive — only run when InfraLayer is
+	// specifically identified (e.g., "kong", "envoy"), not just any nginx.
+	if ev.InfraLayer != "" {
+		relevant["gateway"] = true
+		relevant["proxychain"] = true
+	}
+	if ev.HTTP2Enabled {
+		relevant["websocket"] = true
+		relevant["wsfuzz"] = true
+	}
+	if len(ev.RespondingPaths) > 0 || ev.AuthScheme != "" {
+		relevant["apischema"] = true
+	}
+
+	// Injection scanners — only if web server has parameters or forms
+	// (ev.RespondingPaths is a proxy for "there are endpoints to fuzz").
+	if hasHTTP && (len(ev.RespondingPaths) > 0 || ev.Framework != "") {
+		for _, name := range []string{
+			"sqli", "nosqli", "ssti", "crlf", "openredir", "rxss",
+			"xxe", "hpp", "ssrf", "pathtraversal", "cmdinj",
+			"elinjection", "pdfssrf", "apifuzz", "deserial",
+			"domxss", "fileupload", "secondorder", "protopollution",
+			"redos", "racecondition",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Auth scanners — only if auth system detected or login form found.
+	if ev.AuthSystem != "" || ev.AuthScheme != "" || len(ev.CookieNames) > 0 {
+		for _, name := range []string{
+			"jwt", "oauth", "saml", "authfuzz", "iam", "privesc",
+			"idor", "accesscontrol", "statemachine", "csrf", "okta",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// AI/ML scanners — only if AI endpoint detected.
+	if hasAI {
+		for _, name := range []string{"aiinfra", "aillm", "aimodelsec"} {
+			relevant[name] = true
+		}
+	}
+
+	// Web3 scanners — only if blockchain/web3 detected.
+	if hasWeb3 {
+		for _, name := range []string{
+			"chainnode", "web3detect", "web3auth", "web3defi", "contractscan",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// CI/CD scanners — only if CI/CD panel detected.
+	if hasCICD {
+		for _, name := range []string{
+			"ghactions", "gitlab", "jenkins", "bitbucket", "teamcity", "circleci",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Docker/K8s scanners — only if container infra detected.
+	if hasDocker || hasK8s {
+		for _, name := range []string{"containerimage", "onprem"} {
+			relevant[name] = true
+		}
+	}
+
+	// Monitoring-specific scanners.
+	if hasMonitoring {
+		for _, name := range []string{"depconf"} {
+			relevant[name] = true
+		}
+	}
+
+	// DNS/Email scanners — only for domain scans, not bare IPs.
+	if !isIP {
+		for _, name := range []string{
+			"email", "takeover", "typosquat", "whois", "bgp",
+			"subfinder",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Mail-specific.
+	if hasMail {
+		relevant["email"] = true
+	}
+
+	// Database-specific — chain engine handles most of these, but ensure
+	// nuclei (already always-on) covers DB CVEs.
+	if hasDB {
+		relevant["nuclei"] = true
+	}
+
+	return relevant
+}
+
+// portInSet returns true if any of the given ports appear in the openPorts map.
+func portInSet(openPorts map[int]string, ports ...int) bool {
+	for _, p := range ports {
+		if _, ok := openPorts[p]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// expandScannersFromCrawl examines crawler findings and discovered URLs to
+// identify new scanner signals that weren't visible during Phase A. Returns
+// a set of ADDITIONAL scanner names that should be enabled.
+//
+// This closes the gap where crawl-discovered endpoints reveal services
+// (GraphQL, WebSocket, admin panels, API versions) that Phase A couldn't detect.
+func expandScannersFromCrawl(crawlFindings []finding.Finding, crawlURLs []string) map[string]bool {
+	extra := make(map[string]bool)
+
+	// Check finding evidence for GraphQL signals.
+	for _, f := range crawlFindings {
+		title := strings.ToLower(f.Title)
+		desc := strings.ToLower(f.Description)
+		if strings.Contains(title, "graphql") || strings.Contains(desc, "graphql") {
+			extra["graphql"] = true
+		}
+	}
+
+	// Scan discovered URLs for service signals.
+	for _, u := range crawlURLs {
+		lower := strings.ToLower(u)
+
+		// GraphQL endpoints
+		if strings.Contains(lower, "graphql") || strings.Contains(lower, "graphiql") {
+			extra["graphql"] = true
+		}
+
+		// API versioned paths → API schema discovery
+		if strings.Contains(lower, "/api/") || strings.Contains(lower, "/v1/") ||
+			strings.Contains(lower, "/v2/") || strings.Contains(lower, "/v3/") {
+			extra["apischema"] = true
+		}
+
+		// WebSocket signals
+		if strings.Contains(lower, "ws://") || strings.Contains(lower, "wss://") ||
+			strings.Contains(lower, "websocket") || strings.Contains(lower, "socket.io") {
+			extra["websocket"] = true
+			extra["wsfuzz"] = true
+		}
+
+		// Admin / auth paths → enable auth scanners
+		if strings.Contains(lower, "/admin") || strings.Contains(lower, "/login") ||
+			strings.Contains(lower, "/signin") || strings.Contains(lower, "/auth/") ||
+			strings.Contains(lower, "/oauth") || strings.Contains(lower, "/sso") ||
+			strings.Contains(lower, "/saml") {
+			extra["jwt"] = true
+			extra["oauth"] = true
+			extra["saml"] = true
+			extra["authfuzz"] = true
+			extra["csrf"] = true
+			extra["accesscontrol"] = true
+		}
+	}
+
+	// If crawler found any URLs at all, there are endpoints to fuzz —
+	// enable injection scanners (they rely on discovered params).
+	if len(crawlURLs) > 0 {
+		for _, name := range []string{
+			"sqli", "nosqli", "ssti", "crlf", "openredir", "rxss",
+			"xxe", "hpp", "ssrf", "pathtraversal", "cmdinj",
+		} {
+			extra[name] = true
+		}
+	}
+
+	return extra
 }

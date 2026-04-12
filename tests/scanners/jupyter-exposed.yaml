@@ -56,4 +56,18 @@ assertions:
     expect:
       not_check_id: port.redis_unauthenticated
 
+  - name: deep-mode-jupyter
+    type: beacon
+    target: localhost:20040
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "8888"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-jupyter
+    type: beacon
+    target: localhost:20040
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "8888"]
+    expect:
+      min_findings: 0
+
 timeout: 10m

@@ -24,6 +24,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 // Engine orchestrates active attack path chaining.
@@ -87,7 +88,10 @@ func (e *Engine) OnFinding(ctx context.Context, f finding.Finding) []finding.Fin
 	// If we know the affected range for this CVE and the version is outside
 	// it, skip chaining. If no version, proceed but mark chain findings
 	// as probable confidence.
-	triggerVersion, _ := f.Evidence["version"].(string)
+	var triggerVersion string
+	if v, ok := f.Evidence["version"].(string); ok {
+		triggerVersion = v
+	}
 	triggerHasVersion := triggerVersion != ""
 	if !triggerHasVersion {
 		// Some findings store version under service-specific keys.
@@ -106,15 +110,26 @@ func (e *Engine) OnFinding(ctx context.Context, f finding.Finding) []finding.Fin
 		log.Printf("[chain] version unknown for %s on %s, proceeding with probable confidence", f.CheckID, f.Asset)
 	}
 
+	sl := scanlog.FromContext(ctx)
+
 	var results []finding.Finding
+	matched := false
 	for _, chain := range DefaultChains {
 		if !chain.Matches(f) {
 			continue
 		}
+		matched = true
 
+		sl.ChainTriggered(chain.Name, string(f.CheckID), f.Asset)
 		log.Printf("[chain] triggered %q by %s on %s", chain.Name, f.CheckID, f.Asset)
 
+		chainStart := time.Now()
 		newFindings := chain.Execute(ctx, e, f)
+		sl.Debug("chain.execute_complete",
+			"chain", chain.Name, "check_id", string(f.CheckID),
+			"asset", f.Asset, "new_findings", len(newFindings),
+			"duration", time.Since(chainStart).String(),
+		)
 		// If the trigger finding has no version info, downgrade chain
 		// findings to probable confidence (the underlying vuln may be patched).
 		if !triggerHasVersion {
@@ -127,6 +142,10 @@ func (e *Engine) OnFinding(ctx context.Context, f finding.Finding) []finding.Fin
 		if len(newFindings) > 0 {
 			results = append(results, newFindings...)
 		}
+	}
+
+	if !matched {
+		sl.ChainNoMatch(string(f.CheckID), f.Asset)
 	}
 
 	if len(results) > 0 {

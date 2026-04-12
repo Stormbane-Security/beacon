@@ -61,7 +61,7 @@ assertions:
     target: localhost:19863
     args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
     expect:
-      check_id: waf.product_version
+      check_id: waf.detected
 
   # Dirbust WAF blocked — dirbust scanner detects WAF blocking path probes
   - name: detects-dirbust-waf-blocked

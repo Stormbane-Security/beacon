@@ -117,15 +117,20 @@ func detectTomcatDefaultCreds(ctx context.Context, host string, port int, _ stri
 			continue
 		}
 		if strings.Contains(strings.ToLower(body), "tomcat") && strings.Contains(strings.ToLower(body), "manager") {
+			tcEv := map[string]any{"port": port, "service": "tomcat", "default_creds": true,
+				"username": creds[0],
+				"proof":    fmt.Sprintf("curl -s -u %s:%s http://%s:%d/manager/html", creds[0], creds[1], host, port)}
+			if ver := extractTomcatVersion(body); ver != "" {
+				tcEv["version"] = ver
+				tcEv["product"] = "Apache Tomcat " + ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortTomcatDefaultCreds,
 				finding.SeverityCritical,
 				fmt.Sprintf("Apache Tomcat Manager accepts default %s:%s credentials on port %d", creds[0], creds[1], port),
 				fmt.Sprintf("The Apache Tomcat Manager application is accessible with credentials %s/%s. "+
 					"An attacker can deploy arbitrary WAR files to achieve remote code execution on the server.", creds[0], creds[1]),
-				map[string]any{"port": port, "service": "tomcat", "default_creds": true,
-					"username": creds[0],
-					"proof":    fmt.Sprintf("curl -s -u %s:%s http://%s:%d/manager/html", creds[0], creds[1], host, port)},
+				tcEv,
 			)}
 		}
 	}
@@ -167,6 +172,12 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 		(strings.Contains(bodyStr, "\"message\"") && strings.Contains(bodyStr, "\"details\""))
 
 	if resp.StatusCode == http.StatusNotFound && isPortainer {
+		setupEv := map[string]any{"port": port, "service": "portainer", "setup_available": true,
+			"proof": fmt.Sprintf("curl -s %s", url)}
+		if pv := resp.Header.Get("X-Portainer-Version"); pv != "" {
+			setupEv["version"] = pv
+			setupEv["product"] = "Portainer " + pv
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortPortainerDefaultCreds,
 			finding.SeverityCritical,
@@ -174,24 +185,28 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 			"Portainer's initial admin account has not been created yet. "+
 				"Anyone who accesses this Portainer instance can create the admin account "+
 				"and gain full control over all managed Docker/Kubernetes environments.",
-			map[string]any{"port": port, "service": "portainer", "setup_available": true,
-				"proof": fmt.Sprintf("curl -s %s", url)},
+			setupEv,
 		)}
 	}
 
 	// Also check if the status API reveals it's Portainer without auth.
-	statusBody, ok := probeHTTPBody(ctx, host, port, useTLS, "/api/status")
+	statusBody, ok := probeHTTPBodyNotCatchAll(ctx, host, port, useTLS, "/api/status")
 	if ok && strings.Contains(statusBody, "Version") {
 		// Portainer is accessible, but admin is set up. Check if we can list endpoints.
-		endpointsBody, ok := probeHTTPBody(ctx, host, port, useTLS, "/api/endpoints")
+		endpointsBody, ok := probeHTTPBodyNotCatchAll(ctx, host, port, useTLS, "/api/endpoints")
 		if ok && strings.Contains(endpointsBody, "Name") {
+			noAuthEv := map[string]any{"port": port, "service": "portainer", "authenticated": false}
+			if ver := parseJSONStringField(statusBody, "Version"); ver != "" {
+				noAuthEv["version"] = ver
+				noAuthEv["product"] = "Portainer " + ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortPortainerDefaultCreds,
 				finding.SeverityCritical,
 				fmt.Sprintf("Portainer API accessible without authentication on port %d", port),
 				"Portainer API endpoints are accessible without authentication. "+
 					"An attacker can manage all connected Docker and Kubernetes environments.",
-				map[string]any{"port": port, "service": "portainer", "authenticated": false},
+				noAuthEv,
 			)}
 		}
 	}
@@ -295,6 +310,12 @@ func detectGiteaNoAuth(ctx context.Context, host string, port int, _ string, mak
 		return nil
 	}
 
+	// Extract Gitea/Forgejo version from X-Gitea-Version header or /api/v1/version JSON.
+	giteaVersion := ""
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		giteaVersion = ver
+	}
+
 	// Check if the repos search API is accessible without auth.
 	// A successful response (contains "ok" or "data" or "full_name") means
 	// the API is open. Even an empty repo list is a finding — the API itself
@@ -318,8 +339,15 @@ func detectGiteaNoAuth(ctx context.Context, host string, port int, _ string, mak
 			sev,
 			fmt.Sprintf("Gitea/Forgejo exposes API without authentication on port %d", port),
 			desc,
-			map[string]any{"port": port, "service": "gitea", "authenticated": false,
-				"proof": fmt.Sprintf("curl -s http://%s:%d/api/v1/repos/search?limit=5", host, port)},
+			func() map[string]any {
+					ev := map[string]any{"port": port, "service": "gitea", "authenticated": false,
+						"proof": fmt.Sprintf("curl -s http://%s:%d/api/v1/repos/search?limit=5", host, port)}
+					if giteaVersion != "" {
+						ev["version"] = giteaVersion
+						ev["product"] = "Gitea " + giteaVersion
+					}
+					return ev
+				}(),
 		)}
 	}
 	return nil

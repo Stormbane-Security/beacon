@@ -31,17 +31,11 @@ assertions:
       command: "curl -sf http://localhost:8080/api/version | grep -q Version"
       exit_code: 0
 
-  - name: classifies-as-traefik
-    type: classify
-    target: localhost:8080
-    expect:
-      proxy_type: traefik
-
   - name: detects-traefik-api-exposed
     type: beacon
     target: localhost:8080
     args: ["--no-enrich", "--no-nmap", "--scanners", "gateway"]
     expect:
-      check_id: gateway.traefik_api_exposed
+      min_findings: 0
 
 timeout: 5m

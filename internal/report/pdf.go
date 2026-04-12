@@ -118,42 +118,102 @@ func markdownToHTML(md string, domain string) string {
 	}
 	b.WriteString(`</title>
 <style>
-  @page { size: A4; margin: 1cm; }
+  @page { size: A4; margin: 1.5cm 2cm; }
+  @page :first { margin-top: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 11pt;
-    line-height: 1.5;
+    line-height: 1.6;
     color: #1a1a2e;
     max-width: 210mm;
     margin: 0 auto;
-    padding: 1em;
+    padding: 0;
   }
-  h1 { font-size: 20pt; border-bottom: 2px solid #e94560; padding-bottom: 0.3em; margin-top: 1.5em; }
-  h2 { font-size: 16pt; border-bottom: 1px solid #ccc; padding-bottom: 0.2em; margin-top: 1.5em; }
-  h3 { font-size: 13pt; margin-top: 1.2em; }
+
+  /* Cover page */
+  .cover-page {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    text-align: center;
+    page-break-after: always;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: #fff;
+    margin: -1.5cm -2cm;
+    padding: 3cm;
+  }
+  .cover-logo { font-size: 14pt; letter-spacing: 0.15em; text-transform: uppercase; color: #e94560; margin-bottom: 2em; font-weight: 300; }
+  .cover-title { font-size: 32pt; font-weight: 700; margin-bottom: 0.3em; }
+  .cover-subtitle { font-size: 16pt; color: #8892b0; margin-bottom: 2em; }
+  .cover-meta { font-size: 11pt; color: #8892b0; line-height: 2; }
+  .cover-meta strong { color: #e2e8f0; }
+  .cover-divider { width: 80px; height: 3px; background: #e94560; margin: 1.5em auto; border-radius: 2px; }
+
+  /* Section breaks */
+  h1 { font-size: 22pt; border-bottom: 3px solid #e94560; padding-bottom: 0.3em; margin-top: 1.5em; page-break-before: always; }
+  h1:first-of-type { page-break-before: auto; }
+  h2 { font-size: 16pt; border-bottom: 1px solid #ccc; padding-bottom: 0.2em; margin-top: 1.5em; page-break-after: avoid; }
+  h3 { font-size: 13pt; margin-top: 1.2em; page-break-after: avoid; }
+  h4 { font-size: 11pt; margin-top: 1em; color: #555; page-break-after: avoid; }
+
+  /* Tables */
   table { border-collapse: collapse; width: 100%; margin: 0.5em 0; page-break-inside: avoid; }
   th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 10pt; }
   th { background: #f0f0f5; font-weight: 600; }
   tr:nth-child(even) { background: #fafafa; }
-  code { background: #f4f4f8; padding: 2px 5px; border-radius: 3px; font-size: 10pt; }
-  pre { background: #1a1a2e; color: #e0e0e0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 9pt; }
+
+  /* Code */
+  code { background: #f4f4f8; padding: 2px 5px; border-radius: 3px; font-size: 10pt; font-family: "SF Mono", "Fira Code", monospace; }
+  pre { background: #1a1a2e; color: #e0e0e0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 9pt; page-break-inside: avoid; }
   pre code { background: transparent; padding: 0; color: inherit; }
+
+  /* Misc */
   hr { border: none; border-top: 1px solid #ddd; margin: 1.5em 0; }
   img { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; margin: 0.5em 0; }
+  p { margin: 0.4em 0; }
+
+  /* Severity badges */
   .badge-critical { color: #fff; background: #dc3545; padding: 2px 8px; border-radius: 3px; font-weight: bold; font-size: 9pt; }
   .badge-high { color: #fff; background: #fd7e14; padding: 2px 8px; border-radius: 3px; font-weight: bold; font-size: 9pt; }
   .badge-medium { color: #000; background: #ffc107; padding: 2px 8px; border-radius: 3px; font-weight: bold; font-size: 9pt; }
   .badge-low { color: #fff; background: #0d6efd; padding: 2px 8px; border-radius: 3px; font-weight: bold; font-size: 9pt; }
   .badge-info { color: #666; background: #e9ecef; padding: 2px 8px; border-radius: 3px; font-weight: bold; font-size: 9pt; }
-  .finding { page-break-inside: avoid; margin-bottom: 1.5em; }
+
+  /* Finding cards for PDF */
+  .finding { page-break-inside: avoid; margin-bottom: 1.5em; border-left: 3px solid #e94560; padding-left: 12px; }
+
+  /* Table of contents */
+  .toc { page-break-after: always; }
   .toc a { color: #0d6efd; text-decoration: none; }
   .toc a:hover { text-decoration: underline; }
   .toc ul { list-style: none; padding-left: 1em; }
-  .toc li { margin: 0.2em 0; }
+  .toc li { margin: 0.3em 0; font-size: 10pt; }
+
+  /* Footer on each page */
+  @media print {
+    .page-footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8pt; color: #999; }
+  }
 </style>
 </head>
 <body>
 `)
+
+	// Cover page.
+	b.WriteString(`<div class="cover-page">`)
+	b.WriteString(`<div class="cover-logo">Beacon by Stormbane Security</div>`)
+	b.WriteString(`<div class="cover-divider"></div>`)
+	b.WriteString(`<div class="cover-title">Security Assessment Report</div>`)
+	if domain != "" {
+		fmt.Fprintf(&b, `<div class="cover-subtitle">%s</div>`, escapeHTML(domain))
+	}
+	b.WriteString(`<div class="cover-meta">`)
+	b.WriteString(`<strong>Classification:</strong> Confidential<br>`)
+	b.WriteString(`<strong>Prepared by:</strong> Beacon Automated Scanner<br>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`</div>`)
+	b.WriteString("\n")
 
 	// Simple line-by-line markdown to HTML conversion.
 	lines := strings.Split(md, "\n")

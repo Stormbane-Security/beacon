@@ -1,0 +1,79 @@
+name: tls-detection-selfsigned
+description: >
+  Nginx serving HTTPS with a self-signed certificate (2048-bit RSA, CN=test.local).
+  Beacon tlscheck scanner should detect the self-signed cert and report it.
+  Uses a Dockerfile that generates the cert at build time — no pre-generated
+  fixtures needed.
+tags: [tls, certificate, self-signed, scanner, detection]
+
+services:
+  nginx-tls:
+    build:
+      context: ./tls-detection-selfsigned
+    ports: ["20740:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:20740/ -o /dev/null -w '%{http_code}' | grep -qE '200|000'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Verify TLS is active and cert is self-signed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-tls-active
+    type: command
+    expect:
+      command: "curl -sk https://localhost:20740/ | grep -q 'tls self-signed'"
+      exit_code: 0
+
+  - name: preflight-cert-is-self-signed
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20740 </dev/null 2>/dev/null | openssl x509 -noout -issuer | grep -q 'Beacon Test Self-Signed'"
+      exit_code: 0
+
+  - name: preflight-cert-cn
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20740 </dev/null 2>/dev/null | openssl x509 -noout -subject | grep -q 'test.local'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION: Beacon detects self-signed cert
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-self-signed-cert
+    type: beacon
+    target: localhost:20740
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      check_id: tls.cert_self_signed
+
+  - name: detects-at-least-one-finding
+    type: beacon
+    target: localhost:20740
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20740
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-no-expired-cert
+    type: beacon
+    target: localhost:20740
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      not_check_id: tls.cert_expired
+
+timeout: 5m

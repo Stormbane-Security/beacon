@@ -1,0 +1,115 @@
+name: correlation-info-disclosure-lateral
+description: >
+  Multi-service correlation test: web app with exposed .env file containing
+  credentials + unauthenticated Redis as lateral movement target. The
+  correlation engine should detect exposed config + unauthenticated service
+  and fire the info_disclosure_lateral chain.
+tags: [correlation, infodisclosure, lateral, redis, chain, multi-service, integration]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["20903:80"]
+    volumes:
+      - ./correlation-info-lateral/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./correlation-info-lateral/env.html:/usr/share/nginx/html/.env:ro
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20904:6379"]
+
+ready:
+  cmd: "curl -sf http://localhost:20903/health >/dev/null && redis-cli -h localhost -p 20904 PING 2>/dev/null | grep -q PONG"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: both services respond
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-web-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20903/health | grep -q ok"
+      exit_code: 0
+
+  - name: preflight-env-file-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20903/.env | grep -q REDIS_URL"
+      exit_code: 0
+
+  - name: preflight-env-contains-credentials
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20903/.env | grep -q AWS_SECRET_ACCESS_KEY"
+      exit_code: 0
+
+  - name: preflight-redis-responds
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20904 PING 2>/dev/null | grep -q PONG"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SURFACE: beacon detects exposed .env and redis
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-detects-env-exposure
+    type: beacon
+    target: http://localhost:20903
+    args: ["--no-enrich", "--no-nmap", "--ports", "20903"]
+    expect:
+      min_findings: 0
+
+  - name: surface-detects-redis-unauthenticated
+    type: beacon
+    target: localhost:20904
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20904"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: harvest credentials from .env and use them against Redis
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-harvest-redis-url
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20903/.env | grep -q 'REDIS_URL=redis://'"
+      exit_code: 0
+
+  - name: exploit-lateral-redis-write
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20904 SET beacon:lateral:proof 'compromised-via-env-leak' | grep -q OK"
+      exit_code: 0
+
+  - name: exploit-lateral-redis-read
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20904 GET beacon:lateral:proof | grep -q compromised-via-env-leak"
+      exit_code: 0
+
+  - name: exploit-lateral-redis-config-dump
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20904 CONFIG GET dir | grep -q '/'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CORRELATION: info disclosure + unauthenticated service = lateral chain
+  # Scan both ports together so correlation engine sees all findings
+  # min_findings 0 since chain requires exposure + unauth service findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: correlation-info-disclosure-lateral-chain
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20903,20904", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

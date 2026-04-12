@@ -1,0 +1,70 @@
+name: variant-neo4j-versions
+description: >
+  Neo4j version variant test: Neo4j 4.4 vs 5. Both configured with
+  auth disabled to verify beacon detects neo4j_exposed across major
+  versions.
+tags: [variant, neo4j, database, portscan, integration]
+
+services:
+  neo4j4:
+    image: neo4j:4.4-community
+    ports: ["20512:7474", "20513:7687"]
+    environment:
+      NEO4J_AUTH: "none"
+  neo4j5:
+    image: neo4j:5-community
+    ports: ["20514:7474", "20515:7687"]
+    environment:
+      NEO4J_AUTH: "none"
+
+ready:
+  cmd: "curl -sf http://localhost:20512 >/dev/null && curl -sf http://localhost:20514 >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Neo4j 4 (HTTP interface) ---
+  - name: neo4j4-detected
+    type: beacon
+    target: localhost:20512
+    args: ["--no-enrich", "--no-nmap", "--ports", "7474"]
+    expect:
+      check_id: port.neo4j_exposed
+
+  - name: neo4j4-surface-mode
+    type: beacon
+    target: localhost:20512
+    args: ["--no-enrich", "--no-nmap", "--ports", "7474"]
+    expect:
+      min_findings: 1
+
+  - name: neo4j4-exploit-mode
+    type: beacon
+    target: localhost:20512
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "7474"]
+    expect:
+      min_findings: 0
+
+  # --- Neo4j 5 (HTTP interface) ---
+  - name: neo4j5-detected
+    type: beacon
+    target: localhost:20514
+    args: ["--no-enrich", "--no-nmap", "--ports", "7474"]
+    expect:
+      check_id: port.neo4j_exposed
+
+  - name: neo4j5-surface-mode
+    type: beacon
+    target: localhost:20514
+    args: ["--no-enrich", "--no-nmap", "--ports", "7474"]
+    expect:
+      min_findings: 1
+
+  - name: neo4j5-exploit-mode
+    type: beacon
+    target: localhost:20514
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "7474"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

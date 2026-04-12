@@ -8,10 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +35,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/modules/surface"
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/profiler"
+	"github.com/stormbane-security/beacon/internal/recon"
 	"github.com/stormbane-security/beacon/internal/report"
 	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
@@ -60,11 +65,16 @@ USAGE:
   beacon classify    <target> [--format json|text]  Fingerprint a target without running scanners
   beacon retest      --id <scan-id>               Retest findings from a previous scan
   beacon diff        --baseline <id> --id <id>     Diff findings between two scans
+  beacon scope       --program <name>             Show in-scope domains for a bug bounty program
 
 SCAN FLAGS:
   --domain <domain>          Target domain (required unless --host or --targets is used)
   --host <target>            Add a target host; repeatable for multi-host sessions
   --targets <file>           File with one domain per line (enables multi-asset mode)
+  --stdin                    Read targets from stdin (pipe from subfinder, httpx, etc.)
+  --chaos <program>          Fetch targets from ProjectDiscovery Chaos for a bug bounty program
+  --scope <file>             Scope file (.scope.yaml) to filter targets in/out of scope
+  --new-only                 Only show findings not seen in previous scans of the same domain
   --deep                     Enable active probing (sends payloads — confirms permission interactively)
   --exploit                  Enable exploitation-class probes (active exploitation + post-exploit chains)
   --yes                      Skip all confirmation prompts (for CI/automation)
@@ -90,6 +100,7 @@ SCAN FLAGS:
   --no-wpscan                Skip wpscan integration (no WordPress vulnerability scanning)
   --no-masscan               Skip masscan integration (no fast CIDR port scanning)
   --no-arjun                 Skip arjun integration (no external parameter discovery)
+  --strict                   Hard-fail if required tools (nmap, nuclei) are missing (exit 1)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
   --wordlist <path>           Custom wordlist file for brute-force scanners (dirbust, subdomain, param discovery)
@@ -119,6 +130,11 @@ EXAMPLES:
   beacon scan --targets hosts.txt --deep
   beacon scan --domain example.com --output-raw findings.json
   beacon scan --domain example.com --scanners cors,jwt,tls
+  beacon scan --chaos uber                                                Scan Chaos program targets
+  beacon scan --stdin                                                     Pipe targets from subfinder/httpx
+  subfinder -d example.com | beacon scan --stdin
+  beacon scan --targets hosts.txt --new-only                              Only show new findings
+  beacon scope --program hackerone:uber                                   Show program scope
   beacon enrich --input findings.json --format json --out enriched.json
   beacon report --id <id> --format markdown
   beacon scan --domain example.com --format graph | dot -Tsvg -o topology.svg
@@ -160,6 +176,20 @@ func info(format string, args ...any) {
 }
 
 func main() {
+	// Suppress Go's default logger noise (e.g., "Unsolicited response received
+	// on idle HTTP channel" from net/http keep-alive connections). Beacon uses
+	// its own structured logger (scanlog) for all meaningful output.
+	// Re-enabled by --verbose.
+	log.SetOutput(io.Discard)
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "beacon: internal error (recovered panic): %v\n", r)
+			debug.PrintStack()
+			os.Exit(1)
+		}
+	}()
+
 	if len(os.Args) < 2 {
 		// No subcommand — open the interactive scan history browser.
 		cfg, err := config.Load()
@@ -293,6 +323,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		// noWpscan            bool // TODO: wire when wpscan integration lands
 		noMasscan           bool
 		noArjun             bool
+		strict              bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -309,6 +340,10 @@ func cmdScan(cfg *config.Config, args []string) {
 		logFile             string
 		logLevel            string
 		narratives          bool
+		chaosProgram        string
+		stdinTargets        bool
+		scopeFile           string
+		newOnly             bool
 	)
 
 	// --quiet can also be set via env var for automation.
@@ -401,6 +436,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			noMasscan = true
 		case "--no-arjun":
 			noArjun = true
+		case "--strict":
+			strict = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -483,6 +520,20 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				logLevel = args[i]
 			}
+		case "--chaos":
+			i++
+			if i < len(args) {
+				chaosProgram = args[i]
+			}
+		case "--stdin":
+			stdinTargets = true
+		case "--scope":
+			i++
+			if i < len(args) {
+				scopeFile = args[i]
+			}
+		case "--new-only":
+			newOnly = true
 		default:
 			if strings.HasPrefix(args[i], "--") {
 				_, _ = fmt.Fprintf(os.Stderr, "beacon: unknown flag %q\n", args[i])
@@ -539,6 +590,34 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Check for external tool availability.
 	// Critical tools (nmap) cause a hard error; important tools warn with opt-out;
 	// optional tools warn only. All warnings are grouped together.
+	// --strict tool requirement check: nmap and nuclei are required tools.
+	// With --strict, beacon hard-fails (exit 1) if any required tool is missing.
+	// Without --strict, beacon warns and continues with reduced coverage.
+	if strict {
+		type requiredTool struct {
+			name    string
+			bin     string
+			optOut  bool
+			install string
+		}
+		strictRequired := []requiredTool{
+			{"nmap", cfg.NmapBin, noNmap, "https://nmap.org/download"},
+			{"nuclei", cfg.NucleiBin, noNuclei, "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+		}
+		var missingStrict []string
+		for _, rt := range strictRequired {
+			if rt.optOut {
+				continue
+			}
+			if _, err := exec.LookPath(rt.bin); err != nil {
+				missingStrict = append(missingStrict, fmt.Sprintf("  %-14s not found. Install: %s", rt.name, rt.install))
+			}
+		}
+		if len(missingStrict) > 0 {
+			fatalf("beacon: --strict mode: required tools missing:\n%s\n\nInstall the missing tools or use --no-nmap / --no-nuclei to opt out.", strings.Join(missingStrict, "\n"))
+		}
+	}
+
 	if noNmap {
 		cfg.NmapBin = ""
 	} else {
@@ -621,7 +700,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		cfg.ArjunBin = ""
 	}
 
-	// Build unified target list from --domain, --asset, and --targets file.
+	// Build unified target list from --domain, --asset, --targets, --stdin, and --chaos.
 	if domain != "" {
 		assets = append([]string{domain}, assets...)
 	}
@@ -632,6 +711,35 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 		assets = append(assets, lines...)
 	}
+	if stdinTargets {
+		stdinHosts, err := recon.ReadTargetsFromStdin()
+		if err != nil {
+			fatalf("read stdin: %v", err)
+		}
+		assets = append(assets, stdinHosts...)
+	}
+	if chaosProgram != "" {
+		chaosCtx, chaosCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		chaosDomains, err := recon.FetchChaosDomains(chaosCtx, chaosProgram)
+		chaosCancel()
+		if err != nil {
+			fatalf("chaos: %v", err)
+		}
+		info("beacon: loaded %d targets from Chaos program %q\n", len(chaosDomains), chaosProgram)
+		assets = append(assets, chaosDomains...)
+	}
+	// Apply scope filtering if a scope file is provided.
+	if scopeFile != "" {
+		sc, err := recon.LoadScopeFile(scopeFile)
+		if err != nil {
+			fatalf("load scope: %v", err)
+		}
+		before := len(assets)
+		assets = sc.FilterInScope(assets)
+		if filtered := before - len(assets); filtered > 0 {
+			info("beacon: scope filter removed %d out-of-scope targets (%d remaining)\n", filtered, len(assets))
+		}
+	}
 	assets = uniqueStrings(assets)
 
 	// GitHub-only mode (no domain targets) — delegate to the dedicated function.
@@ -640,8 +748,13 @@ func cmdScan(cfg *config.Config, args []string) {
 		return
 	}
 
+	// If --cidr is provided without --domain, use the CIDR as the target label.
+	if len(assets) == 0 && len(extraCIDRs) > 0 {
+		assets = append(assets, extraCIDRs[0])
+	}
+
 	if len(assets) == 0 && githubOrg == "" {
-		fatalf("--domain, --host, --targets, or --github is required\n\n%s", usageText)
+		fatalf("--domain, --host, --targets, --stdin, --chaos, or --github is required\n\n%s", usageText)
 	}
 
 	// Multi-asset mode: scan all targets in a single session.
@@ -714,10 +827,19 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
-	// Set up structured logging if --log-file is specified.
+	// Set up structured logging. When --log-file is specified, logs go to that
+	// file. When --verbose is set or --log-level is "debug", logs go to stderr
+	// so developers can see the full execution chain in the terminal.
 	if logFile != "" {
 		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
 		defer func() { _ = sl.Close() }()
+		ctx = scanlog.WithLogger(ctx, sl)
+	} else if verbose || logLevel == "debug" {
+		level := scanlog.ParseLevel(logLevel)
+		if verbose && level > slog.LevelDebug {
+			level = slog.LevelDebug
+		}
+		sl := scanlog.New("", level) // "" → stderr
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 
@@ -832,6 +954,14 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 	resultCh := make(chan scanResult, 1)
 	scanDone := make(chan struct{}) // closed when the scan goroutine exits
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("beacon: scan goroutine panic (recovered): %v", r)
+				debug.PrintStack()
+				resultCh <- scanResult{nil, fmt.Errorf("scan panicked: %v", r)}
+				close(scanDone)
+			}
+		}()
 		f, e := mod.Run(ctx, input, scanType)
 		resultCh <- scanResult{f, e}
 		close(scanDone)
@@ -1047,6 +1177,26 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 
 	// Flag potential duplicates across scanners and overlapping assets.
 	dedup.FlagDuplicates(findings)
+
+	// Save scan history for cross-run dedup.
+	if !noDB {
+		if err := recon.SaveScanHistory(run.ID, domain, findings); err != nil {
+			info("beacon: save history: %v\n", err)
+		}
+	}
+
+	// --new-only: filter to findings not seen in the previous scan.
+	if newOnly {
+		prev, err := recon.LatestScanHistory(domain)
+		if err != nil {
+			info("beacon: load previous scan history: %v\n", err)
+		} else if prev != nil && prev.ScanID != run.ID {
+			beforeCount := len(findings)
+			findings = recon.FilterNewFindings(findings, prev.Findings)
+			info("beacon: --new-only filtered %d findings to %d new (baseline: %s)\n",
+				beforeCount, len(findings), prev.ScanID)
+		}
+	}
 
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
@@ -1339,10 +1489,18 @@ file upload bypass, token forgery. Do you have written authorization? [y/N] `, l
 		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
-	// Set up structured logging if --log-file is specified.
+	// Set up structured logging. When --log-file is specified, logs go to that
+	// file. When --verbose is set or --log-level is "debug", logs go to stderr.
 	if logFile != "" {
 		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
 		defer func() { _ = sl.Close() }()
+		ctx = scanlog.WithLogger(ctx, sl)
+	} else if verbose || logLevel == "debug" {
+		level := scanlog.ParseLevel(logLevel)
+		if verbose && level > slog.LevelDebug {
+			level = slog.LevelDebug
+		}
+		sl := scanlog.New("", level) // "" → stderr
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 

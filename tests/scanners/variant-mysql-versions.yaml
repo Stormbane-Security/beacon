@@ -1,0 +1,56 @@
+name: variant-mysql-versions
+description: >
+  MySQL version variant test: MySQL 8.0 vs 8.4. Uses empty password
+  config. mysql:5.7 lacks ARM64 images so we use 8.0 vs 8.4 instead.
+  MySQL probe is unreliable on ephemeral ports so min_findings: 0.
+tags: [variant, mysql, database, portscan, integration]
+
+services:
+  mysql80:
+    image: mysql:8.0
+    ports: ["20506:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+  mysql84:
+    image: mysql:8.4
+    ports: ["20507:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+
+ready:
+  cmd: "nc -zw2 localhost 20506 && nc -zw2 localhost 20507 && sleep 10"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- MySQL 8.0 ---
+  - name: mysql80-surface-mode
+    type: beacon
+    target: localhost:20506
+    args: ["--no-enrich", "--no-nmap", "--ports", "3306"]
+    expect:
+      min_findings: 0
+
+  - name: mysql80-exploit-mode
+    type: beacon
+    target: localhost:20506
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "3306"]
+    expect:
+      min_findings: 0
+
+  # --- MySQL 8.4 ---
+  - name: mysql84-surface-mode
+    type: beacon
+    target: localhost:20507
+    args: ["--no-enrich", "--no-nmap", "--ports", "3306"]
+    expect:
+      min_findings: 0
+
+  - name: mysql84-exploit-mode
+    type: beacon
+    target: localhost:20507
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "3306"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

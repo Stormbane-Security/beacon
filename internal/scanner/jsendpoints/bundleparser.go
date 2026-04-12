@@ -77,8 +77,48 @@ type secretPattern struct {
 	re   *regexp.Regexp
 }
 
+// isBase64Context checks whether the match at position idx in content is
+// embedded inside a longer base64-encoded blob. If 10+ surrounding characters
+// are all base64-alphabet ([A-Za-z0-9+/=]), the AKIA is likely encoded binary.
+func isBase64Context(content string, idx, matchLen int) bool {
+	const window = 10
+	start := idx - window
+	if start < 0 {
+		start = 0
+	}
+	end := idx + matchLen + window
+	if end > len(content) {
+		end = len(content)
+	}
+	base64Chars := 0
+	totalChars := 0
+	for i := start; i < end; i++ {
+		if i >= idx && i < idx+matchLen {
+			continue // skip the match itself
+		}
+		c := content[i]
+		totalChars++
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=' {
+			base64Chars++
+		}
+	}
+	// If nearly all surrounding chars are base64 alphabet, it's likely a blob.
+	return totalChars >= 6 && float64(base64Chars)/float64(totalChars) > 0.85
+}
+
+// isAWSKeyBoundary checks that the character before the match is a word
+// boundary (not alphanumeric / base64 continuation).
+func isAWSKeyBoundary(content string, idx int) bool {
+	if idx == 0 {
+		return true
+	}
+	c := content[idx-1]
+	// Must not be alphanumeric or base64-ish
+	return !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/')
+}
+
 var secretPatterns = []secretPattern{
-	{"aws_key", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
+	{"aws_key", regexp.MustCompile(`AKIA[A-Z0-9]{16}`)},
 	{"jwt", regexp.MustCompile(`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*`)},
 	{"api_key", regexp.MustCompile("(?i)api[_-]?key[\"':\\s]*[=:]\\s*[\"'][A-Za-z0-9]{20,}[\"']")},
 	{"firebase", regexp.MustCompile("(?i)apiKey[\"':\\s]*[=:]\\s*[\"']AIza[A-Za-z0-9_-]{35}[\"']")},
@@ -182,11 +222,24 @@ func ParseBundle(jsContent string, source string) *BundleFindings {
 	// --- Hardcoded secrets ---
 	seenSecrets := make(map[string]bool)
 	for _, sp := range secretPatterns {
-		matches := sp.re.FindAllString(jsContent, 10)
-		for _, match := range matches {
+		indices := sp.re.FindAllStringIndex(jsContent, 10)
+		for _, loc := range indices {
+			match := jsContent[loc[0]:loc[1]]
 			if seenSecrets[match] {
 				continue
 			}
+
+			// AWS key validation: reject matches embedded in base64
+			// blobs or lacking a word boundary before AKIA.
+			if sp.name == "aws_key" {
+				if !isAWSKeyBoundary(jsContent, loc[0]) {
+					continue
+				}
+				if isBase64Context(jsContent, loc[0], loc[1]-loc[0]) {
+					continue
+				}
+			}
+
 			seenSecrets[match] = true
 
 			// Truncate for display safety.

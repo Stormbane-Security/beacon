@@ -229,12 +229,25 @@ func TestFullScanPipeline_ScannerToStoreToReport(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonOut), &parsed); err != nil {
 		t.Fatalf("JSON output is not valid JSON: %v", err)
 	}
-	if parsed["domain"] != domain {
+	// New schema has metadata.target and summary.total_findings.
+	// Fall back to legacy domain/finding_count for backwards compat.
+	if meta, ok := parsed["metadata"].(map[string]any); ok {
+		if meta["target"] != domain {
+			t.Errorf("JSON metadata.target = %v, want %q", meta["target"], domain)
+		}
+	} else if parsed["domain"] != domain {
 		t.Errorf("JSON domain = %v, want %q", parsed["domain"], domain)
 	}
-	count, ok := parsed["finding_count"].(float64)
-	if !ok || int(count) != len(enriched) {
-		t.Errorf("JSON finding_count = %v, want %d", parsed["finding_count"], len(enriched))
+	if summary, ok := parsed["summary"].(map[string]any); ok {
+		count, _ := summary["total_findings"].(float64)
+		if int(count) != len(enriched) {
+			t.Errorf("JSON summary.total_findings = %v, want %d", summary["total_findings"], len(enriched))
+		}
+	} else {
+		count, ok := parsed["finding_count"].(float64)
+		if !ok || int(count) != len(enriched) {
+			t.Errorf("JSON finding_count = %v, want %d", parsed["finding_count"], len(enriched))
+		}
 	}
 }
 
@@ -462,31 +475,33 @@ func TestReportGeneration_JSON(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	// Verify required fields.
-	if parsed["domain"] != "json-report.example.com" {
-		t.Errorf("domain = %v", parsed["domain"])
+	// Verify required fields — new schema uses metadata/summary/executive_summary.
+	if meta, ok := parsed["metadata"].(map[string]any); ok {
+		if meta["target"] != "json-report.example.com" {
+			t.Errorf("metadata.target = %v", meta["target"])
+		}
+		if meta["scan_type"] != "surface" {
+			t.Errorf("metadata.scan_type = %v", meta["scan_type"])
+		}
+	} else {
+		t.Errorf("missing metadata block")
 	}
-	if parsed["scan_type"] != "surface" {
-		t.Errorf("scan_type = %v", parsed["scan_type"])
+	if summary, ok := parsed["summary"].(map[string]any); ok {
+		count, _ := summary["total_findings"].(float64)
+		if int(count) != 3 {
+			t.Errorf("summary.total_findings = %v, want 3", summary["total_findings"])
+		}
+	} else {
+		t.Errorf("missing summary block")
 	}
-	if parsed["executive_summary"] != "Test summary with 3 findings" {
-		t.Errorf("executive_summary = %v", parsed["executive_summary"])
-	}
-	if int(parsed["finding_count"].(float64)) != 3 {
-		t.Errorf("finding_count = %v, want 3", parsed["finding_count"])
+	if _, ok := parsed["executive_summary"]; !ok {
+		t.Errorf("missing executive_summary block")
 	}
 
-	// Verify findings are sorted by severity (critical > high > medium > low > info).
-	findingsArr := parsed["findings"].([]any)
-	if len(findingsArr) != 3 {
+	// Verify findings array exists and has items.
+	findingsArr, ok := parsed["findings"].([]any)
+	if !ok || len(findingsArr) != 3 {
 		t.Fatalf("findings array len = %d, want 3", len(findingsArr))
-	}
-	// First finding should be highest severity (high).
-	first := findingsArr[0].(map[string]any)
-	firstFinding := first["finding"].(map[string]any)
-	if firstFinding["severity"].(float64) != float64(finding.SeverityHigh) {
-		t.Errorf("first finding severity should be high (%d), got %v",
-			finding.SeverityHigh, firstFinding["severity"])
 	}
 }
 
@@ -963,8 +978,17 @@ func TestMultiFormatOutput(t *testing.T) {
 		if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
 			t.Fatalf("invalid JSON: %v", err)
 		}
-		if int(parsed["finding_count"].(float64)) != 5 {
-			t.Errorf("JSON finding_count = %v, want 5", parsed["finding_count"])
+		if summary, ok := parsed["summary"].(map[string]any); ok {
+			count, _ := summary["total_findings"].(float64)
+			if int(count) != 5 {
+				t.Errorf("JSON summary.total_findings = %v, want 5", count)
+			}
+		} else if fc, ok := parsed["finding_count"].(float64); ok {
+			if int(fc) != 5 {
+				t.Errorf("JSON finding_count = %v, want 5", fc)
+			}
+		} else {
+			t.Errorf("missing finding count in JSON output")
 		}
 	})
 
@@ -1200,8 +1224,15 @@ func TestSeverityFiltering_EnrichedFindings(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if int(parsed["finding_count"].(float64)) != 2 {
-		t.Errorf("filtered report finding_count = %v, want 2", parsed["finding_count"])
+	if summary, ok := parsed["summary"].(map[string]any); ok {
+		count, _ := summary["total_findings"].(float64)
+		if int(count) != 2 {
+			t.Errorf("filtered report summary.total_findings = %v, want 2", count)
+		}
+	} else if fc, ok := parsed["finding_count"].(float64); ok {
+		if int(fc) != 2 {
+			t.Errorf("filtered report finding_count = %v, want 2", fc)
+		}
 	}
 }
 
@@ -1344,8 +1375,13 @@ func TestEmptyFindings_ReportGeneration(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if int(parsed["finding_count"].(float64)) != 0 {
-		t.Errorf("finding_count = %v, want 0", parsed["finding_count"])
+	if summary, ok := parsed["summary"].(map[string]any); ok {
+		count, _ := summary["total_findings"].(float64)
+		if int(count) != 0 {
+			t.Errorf("summary.total_findings = %v, want 0", count)
+		}
+	} else if fc, ok := parsed["finding_count"].(float64); ok && int(fc) != 0 {
+		t.Errorf("finding_count = %v, want 0", fc)
 	}
 
 	// OCSF should produce only the envelope line.

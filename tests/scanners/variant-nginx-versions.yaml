@@ -1,0 +1,92 @@
+name: variant-nginx-versions
+description: >
+  nginx version variant test: 1.24 vs 1.25. Verifies that beacon
+  identifies the nginx web server across both versions, catching
+  regressions where Server header or response format changes break
+  fingerprinting.
+tags: [variant, nginx, webserver, integration]
+
+services:
+  nginx124:
+    image: nginx:1.24-alpine
+    ports: ["20540:80"]
+
+  nginx125:
+    image: nginx:1.25-alpine
+    ports: ["20541:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:20540/ >/dev/null && curl -sf http://localhost:20541/ >/dev/null"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # NGINX 1.24 — service identification
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: nginx124-service-identified
+    type: beacon
+    target: localhost:20540
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20540"]
+    expect:
+      check_id: port.service_identified
+
+  - name: nginx124-surface-findings
+    type: beacon
+    target: http://localhost:20540
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-nginx124-deep-scan
+    type: beacon
+    target: http://localhost:20540
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NGINX 1.25 — service identification
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: nginx125-service-identified
+    type: beacon
+    target: localhost:20541
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20541"]
+    expect:
+      check_id: port.service_identified
+
+  - name: nginx125-surface-findings
+    type: beacon
+    target: http://localhost:20541
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-nginx125-deep-scan
+    type: beacon
+    target: http://localhost:20541
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-nginx124-not-consul
+    type: beacon
+    target: localhost:20540
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20540"]
+    expect:
+      not_check_id: port.consul_no_acl
+
+  - name: negative-nginx125-not-vault
+    type: beacon
+    target: localhost:20541
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20541"]
+    expect:
+      not_check_id: port.vault_exposed
+
+timeout: 5m

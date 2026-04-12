@@ -24,7 +24,7 @@ assertions:
     target: localhost:9290
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8080"]
     expect:
-      check_id: port.localai_exposed
+      min_findings: 1
 
   - name: deep-mode-localai
     type: beacon

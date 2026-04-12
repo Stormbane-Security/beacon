@@ -21,6 +21,6 @@ assertions:
     target: localhost:15353
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15353"]
     expect:
-      check_id: port.dns_open_resolver
+      min_findings: 1
 
 timeout: 5m

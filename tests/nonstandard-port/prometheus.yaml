@@ -9,7 +9,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:8877/-/healthy | grep -q OK"
-  timeout: 90s
+  timeout: 150s
   interval: 3s
 
 assertions:

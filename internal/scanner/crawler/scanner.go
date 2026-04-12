@@ -104,7 +104,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		"-timeout", "20",
 		"-depth", depth,
 		"-rl", rl,                           // max requests/second — avoids hammering target
-		"-c", "2",                           // 2 concurrent requests
+		"-c", "4",                           // 4 concurrent requests
 		"-max-count", maxCount,              // hard page cap
 		"-max-response-size", "2",           // 2MB max per response
 		"-known-files", "all",               // check robots.txt, sitemap.xml

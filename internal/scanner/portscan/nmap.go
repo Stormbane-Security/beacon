@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -126,8 +127,11 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	// scripts against HTTP ports or SMB scripts against Redis.
 	var surfaceScripts []string
 
-	// Always run these lightweight scripts
-	surfaceScripts = append(surfaceScripts, "banner")
+	// Always run these lightweight, universal scripts that work on any service
+	surfaceScripts = append(surfaceScripts, "banner", "redis-info",
+		"ssh-auth-methods", "ssh2-enum-algos",
+		"http-title", "http-server-header",
+		"ssl-cert")
 
 	// Add service-specific scripts based on what portscan identified
 	for _, svc := range openPorts {
@@ -212,19 +216,22 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 
 	args = append(args, asset)
 
-	// Scale nmap timeout with the number of ports: 90s per port, min 90s, max 5m.
+	// Scale nmap timeout with the number of ports: 30s per port, min 30s, max 2m.
 	// Single-port scans with vuln scripts typically finish in under 60s.
-	nmapTimeout := time.Duration(len(openPorts)) * 90 * time.Second
-	if nmapTimeout < 90*time.Second {
-		nmapTimeout = 90 * time.Second
+	nmapTimeout := time.Duration(len(openPorts)) * 30 * time.Second
+	if nmapTimeout < 30*time.Second {
+		nmapTimeout = 30 * time.Second
 	}
-	if nmapTimeout > 5*time.Minute {
-		nmapTimeout = 5 * time.Minute
+	if nmapTimeout > 2*time.Minute {
+		nmapTimeout = 2 * time.Minute
 	}
 	nmapCtx, cancel := context.WithTimeout(ctx, nmapTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(nmapCtx, s.nmapBin, args...)
+	// nmap works for TCP connect scans and NSE scripts without root.
+	// Only use sudo when root IS available (enables SYN scan, OS detection).
+	var cmd *exec.Cmd
+	cmd = exec.CommandContext(nmapCtx, s.nmapBin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -261,7 +268,12 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 			udpCtx, udpCancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer udpCancel()
 
-			udpCmd := exec.CommandContext(udpCtx, s.nmapBin, udpArgs...)
+			var udpCmd *exec.Cmd
+			if os.Geteuid() != 0 {
+				udpCmd = exec.CommandContext(udpCtx, "sudo", append([]string{s.nmapBin}, udpArgs...)...)
+			} else {
+				udpCmd = exec.CommandContext(udpCtx, s.nmapBin, udpArgs...)
+			}
 			var udpStdout bytes.Buffer
 			udpCmd.Stdout = &udpStdout
 
@@ -523,7 +535,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "ssl-heartbleed":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVEOpenSSLHeartbleed,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,
@@ -539,7 +551,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "ms17-010", "smb-vuln-ms17-010":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVESMBEternalBlue,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,
@@ -555,7 +567,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "smb-vuln-ms08-067":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVESMBMS08067,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,
@@ -571,7 +583,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "http-shellshock":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVEBashShellshock,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,

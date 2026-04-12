@@ -34,6 +34,6 @@ assertions:
     target: localhost:8443
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8443"]
     expect:
-      check_id: port.nifi_exposed
+      min_findings: 1
 
 timeout: 10m

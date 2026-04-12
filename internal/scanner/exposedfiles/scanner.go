@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,16 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
+// envKeyValueRe matches at least one KEY=value line typical of .env files.
+// Requires an uppercase letter at the start of the key name.
+var envKeyValueRe = regexp.MustCompile(`(?m)^[A-Z][A-Z0-9_]+=.+`)
+
+// isEnvFile returns true if the path is a dotenv-style file that needs
+// extra validation to avoid SPA catch-all false positives.
+func isEnvFile(path string) bool {
+	return path == "/.env" ||
+		strings.HasPrefix(path, "/.env.")
+}
 
 func init() {
 	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
@@ -256,7 +267,7 @@ var targets = []sensitiveFile{
 			"variables, system properties, and application configuration — including database credentials, " +
 			"API keys, and secrets that Spring tries to mask in the UI."},
 	{path: "/actuator/heapdump", title: "Spring Boot Actuator /heapdump exposed", severity: finding.SeverityCritical,
-		checkID: finding.CheckExposureSpringActuator,
+		checkID: finding.CheckExposureSpringActuator, bodyContains: "JAVA PROFILE",
 		description: "The Spring Boot /actuator/heapdump endpoint is publicly accessible. This endpoint serves " +
 			"a full JVM heap dump containing all in-memory objects — passwords, session tokens, encryption keys, " +
 			"and sensitive business data can be extracted from the dump with standard Java tools."},
@@ -317,6 +328,46 @@ var targets = []sensitiveFile{
 	{path: "/server-info", title: "Apache server-info exposed", severity: finding.SeverityMedium, bodyContains: "Apache"},
 	{path: "/phpinfo.php", title: "PHP info page exposed", severity: finding.SeverityHigh, bodyContains: "phpinfo"},
 	{path: "/info.php", title: "PHP info page exposed", severity: finding.SeverityHigh, bodyContains: "phpinfo"},
+
+	// Source maps — reveal unminified JavaScript source code.
+	{path: "/main.js.map", title: "JavaScript source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\""},
+	{path: "/app.js.map", title: "JavaScript source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\""},
+	{path: "/bundle.js.map", title: "JavaScript source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\""},
+	{path: "/static/js/main.js.map", title: "React source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\"", deepOnly: true},
+
+	// Debug / development endpoints
+	{path: "/__debug__/", title: "Debug endpoint exposed", severity: finding.SeverityHigh, deepOnly: true},
+	{path: "/debug/pprof/", title: "Go pprof debug endpoint exposed", severity: finding.SeverityHigh,
+		bodyContains: "pprof", checkID: finding.CheckExposureMonitoringPanel},
+	{path: "/debug/vars", title: "Go expvar debug endpoint exposed", severity: finding.SeverityHigh,
+		bodyContains: "{", checkID: finding.CheckExposureMonitoringPanel},
+	{path: "/_debug/", title: "Debug interface exposed", severity: finding.SeverityHigh, deepOnly: true},
+	{path: "/elmah.axd", title: "ELMAH error log exposed (.NET)", severity: finding.SeverityHigh,
+		bodyContains: "ELMAH", deepOnly: true},
+	{path: "/trace.axd", title: "ASP.NET trace exposed", severity: finding.SeverityHigh, deepOnly: true},
+
+	// GraphQL introspection
+	{path: "/graphql", title: "GraphQL endpoint exposed", severity: finding.SeverityMedium,
+		checkID: finding.CheckExposureAPIDocs},
+
+	// Common backup/staging paths
+	{path: "/backup/", title: "Backup directory listing", severity: finding.SeverityHigh, deepOnly: true},
+	{path: "/old/", title: "Legacy directory listing", severity: finding.SeverityMedium, deepOnly: true},
+	{path: "/test/", title: "Test directory listing", severity: finding.SeverityMedium, deepOnly: true},
+	{path: "/.DS_Store", title: "macOS .DS_Store file exposed", severity: finding.SeverityMedium,
+		checkID: finding.CheckExposureSensitiveFile},
+	{path: "/crossdomain.xml", title: "Flash crossdomain.xml with wildcard origin", severity: finding.SeverityLow,
+		bodyContains: "allow-access-from domain=\"*\"", checkID: finding.CheckExposureAPIDocs},
+	{path: "/clientaccesspolicy.xml", title: "Silverlight client access policy exposed", severity: finding.SeverityMedium,
+		bodyContains: "access-policy", checkID: finding.CheckExposureSensitiveFile, deepOnly: true},
+
+	// Kubernetes / cloud metadata
+	{path: "/api/v1/namespaces", title: "Kubernetes API exposed (unauthenticated)", severity: finding.SeverityCritical,
+		bodyContains: "items", deepOnly: true},
 
 	// ── CVE-specific endpoint probes (Oct 2025 – Mar 2026 KEV wave) ──────────
 	// HPE OneView — CVE-2025-37164 unauthenticated RCE (CVSS 10.0, KEV-listed).
@@ -1043,8 +1094,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	log := scanlog.FromContext(ctx)
 
-	scheme := detectScheme(ctx, client, asset)
-	base := scheme + "://" + asset
+	base := detectBase(ctx, asset)
 
 	// Wildcard / catch-all detection: use the shared baseline to filter
 	// individual responses instead of bailing entirely.
@@ -1095,10 +1145,61 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
-		// Heuristic: if the body is an HTML page, it's almost certainly a soft 404.
+		// Heuristic: if the body is an HTML page, it's almost certainly a soft 404
+		// or SPA/PHP catch-all. CVE endpoint probes should never return HTML
+		// (they return JSON, XML, or specific file content). Exclude .env and
+		// admin paths which legitimately serve HTML.
 		ct := resp.Header.Get("Content-Type")
-		if strings.Contains(ct, "text/html") && t.bodyContains == "" {
+		isHTML := strings.Contains(ct, "text/html")
+		isHTMLExpected := isEnvFile(t.path) || t.path == "/admin/" || t.path == "/admin" ||
+			t.path == "/wp-admin/" || t.path == "/wp-login.php" || t.path == "/administrator/" ||
+			t.path == "/phpmyadmin/" || t.path == "/adminer/" || t.path == "/dashboard/" ||
+			t.path == "/manager/html"
+		if isHTML && !isHTMLExpected {
 			continue
+		}
+
+		// Reject clearly wrong content for probes without body validation.
+		// Shell scripts, PDFs, images, JSON APIs, and PHP catch-alls are never
+		// the application endpoint a CVE probe is looking for.
+		if t.bodyContains == "" && len(body) > 4 {
+			prefix := string(body[:4])
+			trimmed := strings.TrimSpace(string(body))
+			switch {
+			case strings.HasPrefix(prefix, "#!/"):  // shell script
+				continue
+			case strings.HasPrefix(prefix, "%PDF"): // PDF
+				continue
+			case strings.HasPrefix(prefix, "\x89PNG"): // PNG
+				continue
+			case strings.HasPrefix(prefix, "GIF8"): // GIF
+				continue
+			case strings.HasPrefix(prefix, "PK"): // ZIP/JAR
+				continue
+			case body[0] == 0xFF && body[1] == 0xD8: // JPEG
+				continue
+			case strings.HasPrefix(trimmed, "{"): // JSON API response (Elasticsearch, Traefik, MinIO)
+				continue
+			case strings.HasPrefix(trimmed, "<?xml"): // XML API response (S3, SOAP services)
+				continue
+			}
+		}
+
+		// For .env-style files: SPA catch-all routes return HTML with 200 status.
+		// Real .env files are text/plain and contain KEY=value lines.
+		if isEnvFile(t.path) {
+			bodyStr := string(body)
+			// HTML response is always a false positive for .env files.
+			if strings.Contains(ct, "text/html") ||
+				strings.HasPrefix(strings.TrimSpace(bodyStr), "<!DOCTYPE") ||
+				strings.HasPrefix(strings.TrimSpace(bodyStr), "<html") ||
+				strings.HasPrefix(strings.TrimSpace(bodyStr), "<HTML") {
+				continue
+			}
+			// Must contain at least one KEY=value pattern (uppercase word before =).
+			if !envKeyValueRe.MatchString(bodyStr) {
+				continue
+			}
 		}
 
 		// Store up to 2000 chars so the AI enrichment pipeline and DLP scanner
@@ -1142,6 +1243,101 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			vulnFindings := analyzeDependenciesCtx(ctx, asset, t.path, body)
 			findings = append(findings, vulnFindings...)
 		}
+	}
+
+	// ── Directory listing detection ──────────────────────────────────────
+	// Check common paths for "Index of /" response (nginx autoindex, Apache).
+	dirPaths := []string{"/", "/images/", "/css/", "/js/", "/static/", "/uploads/", "/assets/"}
+	for _, dp := range dirPaths {
+		u := base + dp
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		if resp.StatusCode == 200 && strings.Contains(string(b), "<title>Index of") {
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckExposureDirListing,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityMedium,
+				Title:       fmt.Sprintf("Directory listing enabled at %s", dp),
+				Description: fmt.Sprintf("The web server at %s has directory listing enabled on %s. This reveals file names, sizes, and modification timestamps, helping attackers map the application structure and discover sensitive files.", asset, dp),
+				Asset:       asset,
+				Evidence:    map[string]any{"url": u, "path": dp},
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep 'Index of'", u),
+				DiscoveredAt: time.Now(),
+			})
+			break // one finding is enough
+		}
+	}
+
+	// ── Nginx alias traversal detection ──────────────────────────────────
+	// Misconfigured alias directives (location /files/ { alias /etc/; })
+	// allow reading files outside the web root. Test by requesting a known
+	// file through the path.
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+		aliasPaths := []string{
+			"/files../etc/passwd",
+			"/img../etc/passwd",
+			"/static../etc/passwd",
+			"/assets../etc/passwd",
+		}
+		for _, ap := range aliasPaths {
+			u := base + ap
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				continue
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = resp.Body.Close()
+			if resp.StatusCode == 200 && strings.Contains(string(b), "root:") {
+				findings = append(findings, finding.Finding{
+					CheckID:     finding.CheckExposureAliasTraversal,
+					Module:      "surface",
+					Scanner:     scannerName,
+					Severity:    finding.SeverityHigh,
+					Title:       fmt.Sprintf("Nginx alias traversal — /etc/passwd readable via %s", ap),
+					Description: fmt.Sprintf("A misconfigured nginx alias directive allows reading files outside the web root. The path %s on %s returned /etc/passwd. An attacker can read arbitrary files from the server filesystem.", ap, asset),
+					Asset:       asset,
+					Evidence:    map[string]any{"url": u, "path": ap, "file_read": "/etc/passwd"},
+					ProofCommand: fmt.Sprintf("curl -s '%s'", u),
+					DiscoveredAt: time.Now(),
+				})
+				break
+			}
+		}
+	}
+
+	// ── Catch-all detection for custom CVE probes ───────────────────────
+	// Applications like Adminer, phpMyAdmin, and SPAs return 200+HTML for
+	// every URL path. Custom CVE probes below make their own HTTP requests
+	// and bypass the generic filter. Detect this and skip all CVE probes.
+	skipCVEProbes := baseline.IsCatchAll
+	if !skipCVEProbes {
+		// Probe a nonexistent path — if the server returns 200+HTML, it's a catch-all.
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-catchall-9x7k.nonexistent", nil)
+		if reqErr == nil {
+			if resp, respErr := client.Do(req); respErr == nil {
+				ct := resp.Header.Get("Content-Type")
+				_ = resp.Body.Close()
+				if resp.StatusCode == 200 && strings.Contains(ct, "text/html") {
+					skipCVEProbes = true
+				}
+			}
+		}
+	}
+	if skipCVEProbes {
+		return findings, nil
 	}
 
 	// CVE-2024-27198 (TeamCity auth bypass, CVSS 9.8, KEV):
@@ -3520,7 +3716,13 @@ func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset strin
 	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 300 && resp.StatusCode < 400) {
 		return nil
 	}
-	bLower := strings.ToLower(string(b))
+	bodyStr := string(b)
+	bLower := strings.ToLower(bodyStr)
+	// Reject JSON/XML API responses — these are not Telerik.
+	trimmed := strings.TrimSpace(bodyStr)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "<?xml") || strings.HasPrefix(trimmed, "<html") {
+		return nil
+	}
 	if !strings.Contains(bLower, "telerik") && !strings.Contains(bLower, "radupload") &&
 		!strings.Contains(bLower, "fileinfo") && !strings.Contains(bLower, "raupostback") {
 		return nil
@@ -5975,6 +6177,20 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 	// Check for SAP NetWeaver fingerprint first to avoid false positives.
 	fingerprints := []string{"/irj/portal", "/sap/bc/gui/sap/its/webgui"}
 	isSAP := false
+	// Skip SAP fingerprint check on catch-all servers — their HTML
+	// reflects URL paths in CSS/canonical URLs, causing false matches
+	// on "/sap/bc/" in the body.
+	catchAllReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-sap-catchall-7k2m.nonexistent", nil)
+	if catchAllReq != nil {
+		if catchAllResp, err := client.Do(catchAllReq); err == nil {
+			ct := catchAllResp.Header.Get("Content-Type")
+			_ = catchAllResp.Body.Close()
+			if catchAllResp.StatusCode == 200 && strings.Contains(ct, "text/html") {
+				return nil // catch-all server — skip SAP probe
+			}
+		}
+	}
+
 	for _, fp := range fingerprints {
 		u := base + fp
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -5988,9 +6204,29 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
 		bodyLow := strings.ToLower(string(body))
-		if strings.Contains(bodyLow, "sap netweaver") || strings.Contains(bodyLow, "sap ag") ||
-			strings.Contains(bodyLow, "sap se") || strings.Contains(bodyLow, "sap portal") ||
-			resp.Header.Get("SAP-Perf-FESRec") != "" || resp.Header.Get("x-sap-") != "" {
+		// Check SAP-specific headers first (most reliable).
+		hasSAPHeader := resp.Header.Get("SAP-Perf-FESRec") != ""
+		for k := range resp.Header {
+			if strings.HasPrefix(strings.ToLower(k), "x-sap-") || strings.HasPrefix(strings.ToLower(k), "sap-") {
+				hasSAPHeader = true
+				break
+			}
+		}
+		// Body checks: require SAP-specific phrases, not substring "sap"
+		// which matches "msapplication" in HTML meta tags.
+		hasSAPBody := strings.Contains(bodyLow, "sap netweaver") ||
+			strings.Contains(bodyLow, "sap ag") || strings.Contains(bodyLow, "sap se") ||
+			strings.Contains(bodyLow, "sap portal") || strings.Contains(bodyLow, "sap logon") ||
+			strings.Contains(bodyLow, "/sap/bc/") || strings.Contains(bodyLow, "sapui5")
+		// Reject if known non-SAP service (catch-all returning their admin page).
+		isNotSAP := strings.Contains(bodyLow, "solr") || strings.Contains(bodyLow, "elasticsearch") ||
+			strings.Contains(bodyLow, "sonarqube") || strings.Contains(bodyLow, "grafana") ||
+			strings.Contains(bodyLow, "jenkins") || strings.Contains(bodyLow, "adminer") ||
+			strings.Contains(bodyLow, "nextcloud") || strings.Contains(bodyLow, "portainer")
+		if isNotSAP {
+			continue
+		}
+		if hasSAPHeader || hasSAPBody {
 			isSAP = true
 			break
 		}
@@ -6011,8 +6247,9 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 			bodyLow := strings.ToLower(string(body))
 			// A 200 with upload-related content confirms the vulnerable endpoint is accessible.
 			if resp.StatusCode == http.StatusOK &&
-				(strings.Contains(bodyLow, "upload") || strings.Contains(bodyLow, "metadata") ||
-					strings.Contains(bodyLow, "visual composer")) {
+				(strings.Contains(bodyLow, "visual composer") ||
+					strings.Contains(bodyLow, "metadatauploader") ||
+					(strings.Contains(bodyLow, "upload") && strings.Contains(bodyLow, "sap"))) {
 				return &finding.Finding{
 					CheckID:  finding.CheckCVESAPNetWeaver2025,
 					Module:   scannerName,
@@ -6036,7 +6273,8 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 					DiscoveredAt: time.Now(),
 				}
 			}
-			if strings.Contains(bodyLow, "sap") || strings.Contains(bodyLow, "netweaver") {
+			if strings.Contains(bodyLow, "sap netweaver") || strings.Contains(bodyLow, "sap ag") ||
+				strings.Contains(bodyLow, "/sap/bc/") || strings.Contains(bodyLow, "sapui5") {
 				isSAP = true
 			}
 		}
@@ -6066,15 +6304,34 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 	}
 }
 
-func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
-	if err != nil {
-		return "http"
+// detectBase finds the canonical base URL for an asset by checking HTTPS
+// first, then HTTP, following any scheme/host redirects (e.g. apex→www).
+func detectBase(ctx context.Context, asset string) string {
+	// Use a redirect-following client just for base detection.
+	followClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: scan.SharedTransport(),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "http"
+
+	for _, scheme := range []string{"https", "http"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+asset+"/", nil)
+		if err != nil {
+			continue
+		}
+		resp, err := followClient.Do(req)
+		if err != nil {
+			continue
+		}
+		_ = resp.Body.Close()
+		// Use the final URL after redirects as the base.
+		final := resp.Request.URL
+		return fmt.Sprintf("%s://%s", final.Scheme, final.Host)
 	}
-	_ = resp.Body.Close()
-	return "https"
+	return "https://" + asset
 }

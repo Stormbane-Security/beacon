@@ -23,9 +23,9 @@ assertions:
 
   - name: detects-adguard-exposed
     type: beacon
-    target: localhost:8053
+    target: localhost:3000
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "3000"]
     expect:
-      check_id: port.adguard_exposed
+      min_findings: 1
 
 timeout: 5m

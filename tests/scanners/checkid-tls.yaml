@@ -1,0 +1,87 @@
+name: checkid-tls
+description: >
+  TLS check ID coverage using nginx with a self-signed certificate and weak
+  TLS configuration. Reuses the correlation-weak-tls fixture which enables
+  TLS 1.0 and weak ciphers. Asserts on tls.cert_self_signed (already covered
+  elsewhere but verified here for completeness in the checkid test suite).
+  NOTE: tls.weak_cipher requires testssl.sh; tls.beast, tls.cert_chain_invalid,
+  tls.no_secure_renegotiation, tls.cert_hostname_mismatch are covered in unit
+  tests but drydock port remapping prevents reliable assertion here.
+tags: [checkid, tls, certificate, self-signed]
+
+services:
+  nginx-tls:
+    build:
+      context: ./correlation-weak-tls
+    ports: ["20964:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:20964/ -o /dev/null -w '%{http_code}' | grep -qE '200|000'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-tls-active
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20964 </dev/null 2>/dev/null | grep -q CONNECTED"
+      exit_code: 0
+
+  - name: preflight-cert-self-signed
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20964 </dev/null 2>/dev/null | openssl x509 -noout -issuer | grep -qi 'Weak TLS Test\\|Beacon'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION: tls.cert_self_signed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-tls-cert-self-signed
+    type: beacon
+    target: localhost:20964
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      check_id: tls.cert_self_signed
+
+  - name: detects-at-least-one-tls-finding
+    type: beacon
+    target: localhost:20964
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT MODE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-tls
+    type: beacon
+    target: localhost:20964
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-expired
+    type: beacon
+    target: localhost:20964
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      not_check_id: tls.cert_expired
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20964
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

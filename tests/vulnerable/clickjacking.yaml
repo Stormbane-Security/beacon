@@ -1,0 +1,26 @@
+name: clickjacking-frameable
+description: "Page without X-Frame-Options or CSP frame-ancestors — frameable for clickjacking"
+tags: [vulnerable, clickjacking, headers]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./clickjacking/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-clickjacking
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "clickjacking", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+      has_check_id: "http.clickjacking"
+
+timeout: 5m

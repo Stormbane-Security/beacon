@@ -7,7 +7,7 @@ tags: [chain, postexploit, activemq-rce, cve, rce, authorized]
 
 services:
   activemq:
-    image: apache/activemq-classic:5.15.15
+    image: apache/activemq-classic:5.18.3
     ports:
       - "9417:61616"
       - "9418:8161"

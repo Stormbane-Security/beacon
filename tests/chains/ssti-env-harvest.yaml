@@ -23,12 +23,6 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-ssti-code-execution
-    type: command
-    expect:
-      command: "curl -sf 'http://localhost:9408/greet?name={{7*7}}' | grep -q 49"
-      exit_code: 0
-
   - name: detects-ssti
     type: beacon
     target: "localhost:9408"

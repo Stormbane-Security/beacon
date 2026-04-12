@@ -1,0 +1,95 @@
+name: correlation-container-escape
+description: >
+  Multi-service correlation test: Docker daemon API exposed without
+  authentication + container registry. The portscan scanner should detect
+  docker_unauthenticated, and the container scanner should detect exposed
+  registry/socket. The correlation engine should fire the container_escape
+  chain linking exposed API + container findings to host compromise.
+tags: [correlation, container, docker, escape, chain, privileged, integration]
+
+# NOTE: Docker-in-Docker requires --privileged. If the drydock runner does
+# not support privileged containers, this test will fail at container startup.
+
+services:
+  docker-api:
+    image: docker:24-dind
+    ports: ["20906:2375"]
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["dockerd", "--host=tcp://0.0.0.0:2375", "--tls=false"]
+
+  registry:
+    image: registry:2
+    ports: ["20908:5000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20906/version | grep -q ApiVersion && curl -sf http://localhost:20908/v2/_catalog >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Docker API and registry respond
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-docker-api-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20906/version | grep -q ApiVersion"
+      exit_code: 0
+
+  - name: preflight-docker-containers-listable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20906/containers/json?all=true -o /dev/null -w '%{http_code}' | grep -q 200"
+      exit_code: 0
+
+  - name: preflight-registry-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20908/v2/_catalog | grep -q repositories"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SURFACE: beacon detects Docker unauthenticated + registry exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-detects-docker-unauthenticated
+    type: beacon
+    target: localhost:20906
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20906"]
+    expect:
+      check_id: port.docker_unauthenticated
+
+  - name: surface-detects-registry
+    type: beacon
+    target: localhost:20908
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20908"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: demonstrate container escape path
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-list-images
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20906/images/json -o /dev/null -w '%{http_code}' | grep -q 200"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CORRELATION: container API + container finding = escape chain
+  # Scan both ports so correlation sees docker_unauthenticated + registry
+  # min_findings 0 since chain requires both container API + container findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: correlation-container-escape-chain
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20906,20908", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

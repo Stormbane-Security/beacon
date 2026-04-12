@@ -1,0 +1,95 @@
+name: nse-detection-redis
+description: >
+  NSE script detection for Redis. Validates three scan tiers:
+  1. Surface (no nmap): native Go probe detects redis_unauthenticated
+  2. Deep (with nmap): NSE redis-info runs and produces additional findings
+  3. Exploit: post-exploit chain fires (key enumeration, config dump)
+  Tests that nmap NSE findings merge cleanly with native findings.
+tags: [nse, nmap, redis, exploit, detection, full-pipeline]
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20730:6379"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 20730 PING 2>/dev/null | grep -q PONG"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 1: SURFACE — native probe (no nmap)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-native-detects-redis
+    type: beacon
+    target: localhost:20730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20730"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: surface-native-finding-count
+    type: beacon
+    target: localhost:20730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20730"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 2: DEEP — with nmap (NSE redis-info runs)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: deep-with-nmap-more-findings
+    type: beacon
+    target: localhost:20730
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "20730", "--deep", "--yes"]
+    expect:
+      min_findings: 2
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 3: EXPLOIT — post-exploit chain fires
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-chain-fires
+    type: beacon
+    target: localhost:20730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20730", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # POST-EXPLOIT: Manual proof
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: postexploit-write-key
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20730 SET beacon:nse:proof 'nse-exploit-value' | grep -q OK"
+      exit_code: 0
+
+  - name: postexploit-read-key
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20730 GET beacon:nse:proof | grep -q 'nse-exploit-value'"
+      exit_code: 0
+
+  - name: postexploit-config-dump
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20730 CONFIG GET dir | grep -q '/'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-postgresql
+    type: beacon
+    target: localhost:20730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20730"]
+    expect:
+      not_check_id: port.postgresql_trust
+
+timeout: 5m

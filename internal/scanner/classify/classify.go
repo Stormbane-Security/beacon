@@ -90,7 +90,7 @@ var vendorDomainPatterns = []vendorPattern{
 }
 
 const (
-	httpTimeout    = 10 * time.Second
+	httpTimeout    = 5 * time.Second
 	asnTimeout     = 3 * time.Second  // short timeout for non-critical external ASN lookup
 	bodyPrefixBytes = 512 // enough to reach <meta name="generator"> in most pages
 )

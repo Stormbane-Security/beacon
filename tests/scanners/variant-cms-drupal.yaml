@@ -20,7 +20,7 @@ assertions:
   - name: drupal-scan-completes
     type: beacon
     target: localhost:19301
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "19301", "--scanners", "secheaders"]
     expect:
       min_findings: 0
 
@@ -28,7 +28,7 @@ assertions:
   - name: drupal-service-identified
     type: beacon
     target: localhost:19301
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "19301"]
     expect:
       check_id: port.service_identified
 

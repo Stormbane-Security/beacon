@@ -2,13 +2,13 @@ package portscan
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 // Version extraction helpers for common service banners.
@@ -305,27 +305,13 @@ func ExtractHTTPTitle(body string) string {
 // "http_title", "server_product", and "server_version" to the evidence map
 // when available. Called for HTTP service_identified findings to provide
 // useful fingerprint data without a dedicated probe match.
-func enrichHTTPEvidence(ctx context.Context, host string, port int, ev map[string]any) {
-	// Try HTTPS first if port is TLS-capable, otherwise plain HTTP.
-	useTLS := isTLSCapable(ctx, host, port)
+func enrichHTTPEvidence(ctx context.Context, host string, port int, useTLS bool, ev map[string]any) {
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
 	}
 	u := fmt.Sprintf("%s://%s:%d/", scheme, host, port)
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -357,4 +343,56 @@ func enrichHTTPEvidence(ctx context.Context, host string, port int, ev map[strin
 	if title := ExtractHTTPTitle(string(body)); title != "" {
 		ev["http_title"] = title
 	}
+}
+
+// parseMemcachedVersion extracts the version from a Memcached stats response.
+// The response contains lines like "STAT version 1.6.22\r\n".
+func parseMemcachedVersion(statsResp string) string {
+	for _, line := range strings.Split(statsResp, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "STAT version ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "STAT version "))
+		}
+	}
+	return ""
+}
+
+// parseGhostVersion extracts the Ghost CMS version from a meta tag or API response.
+// Looks for content="Ghost X.Y.Z" in meta tags or "version":"X.Y.Z" in JSON.
+func parseGhostVersion(body string) string {
+	// Try meta tag: <meta name="generator" content="Ghost 5.82">
+	lower := strings.ToLower(body)
+	if idx := strings.Index(lower, "content=\"ghost "); idx >= 0 {
+		rest := body[idx+len("content=\"Ghost "):]
+		if end := strings.IndexByte(rest, '"'); end > 0 && end < 20 {
+			return strings.TrimSpace(rest[:end])
+		}
+	}
+	// Try JSON field from API response.
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		return ver
+	}
+	return ""
+}
+
+// parseXMLKeyValue extracts the text content of a Splunk-style XML key element:
+// <s:key name="version">9.2.1</s:key>
+// Returns the value string or "" if not found.
+func parseXMLKeyValue(body, keyName string) string {
+	needle := `name="` + keyName + `">`
+	idx := strings.Index(body, needle)
+	if idx < 0 {
+		// Try without namespace prefix.
+		needle = `name="` + keyName + `">`
+		idx = strings.Index(strings.ToLower(body), strings.ToLower(needle))
+		if idx < 0 {
+			return ""
+		}
+	}
+	rest := body[idx+len(needle):]
+	end := strings.Index(rest, "<")
+	if end <= 0 || end > 40 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
 }

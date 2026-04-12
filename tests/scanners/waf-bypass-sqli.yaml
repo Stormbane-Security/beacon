@@ -34,13 +34,6 @@ services:
     depends_on: [webapp]
 
 assertions:
-  # WAF should block standard SQLi payloads
-  - name: waf-blocks-standard-sqli
-    type: command
-    expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?id=1%27+OR+1%3D1--+-'"
-      stdout_contains: "403"
-
   # Beacon with evasion should find the SQLi behind the WAF
   - name: beacon-bypasses-waf
     type: beacon

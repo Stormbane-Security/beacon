@@ -216,15 +216,13 @@ func isRedirect(status int) bool {
 // redirectsToCanary returns true if the Location header value points to the
 // canary domain. Handles both absolute URLs and protocol-relative URLs.
 func redirectsToCanary(location string) bool {
-	loc := strings.ToLower(location)
-	// Absolute URL
-	if strings.Contains(loc, canaryDomain) {
-		return true
-	}
-	// Parse and check host
+	// Parse the Location URL and check the HOST, not the full URL.
+	// The canary domain in query parameters (preserved from the request)
+	// is NOT an open redirect — only the host matters.
 	parsed, err := url.Parse(location)
-	if err == nil && strings.Contains(strings.ToLower(parsed.Host), canaryDomain) {
-		return true
+	if err != nil {
+		return false
 	}
-	return false
+	host := strings.ToLower(parsed.Host)
+	return strings.Contains(host, canaryDomain)
 }

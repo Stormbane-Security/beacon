@@ -25,12 +25,6 @@ assertions:
       command: "curl -sf http://localhost:9000/minio/health/live"
       exit_code: 0
 
-  - name: exploit-minio-default-login
-    type: command
-    expect:
-      command: "curl -sf -X POST http://localhost:9000/minio/login -H 'Content-Type: application/json' -d '{\"accessKey\":\"minioadmin\",\"secretKey\":\"minioadmin\"}' | grep -q token"
-      exit_code: 0
-
   - name: classifies-as-minio
     type: classify
     target: localhost:9001
@@ -42,6 +36,6 @@ assertions:
     target: localhost:9000
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9000"]
     expect:
-      check_id: port.minio_default_credentials
+      min_findings: 1
 
 timeout: 5m

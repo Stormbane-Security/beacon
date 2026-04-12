@@ -1,0 +1,38 @@
+name: variant-zookeeper-versions
+description: >
+  ZooKeeper version variant test: ZK 3.8 vs 3.9. ZooKeeper detection
+  on non-standard ports is unreliable, so assertions use min_findings: 0
+  to verify the scan completes without crashing.
+tags: [variant, zookeeper, infrastructure, integration]
+
+services:
+  zk38:
+    image: zookeeper:3.8
+    ports: ["20590:2181"]
+  zk39:
+    image: zookeeper:3.9
+    ports: ["20591:2181"]
+
+ready:
+  cmd: "nc -zw2 localhost 20590 && nc -zw2 localhost 20591"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- ZooKeeper 3.8 ---
+  - name: zk38-scan-completes
+    type: beacon
+    target: localhost:20590
+    args: ["--no-enrich", "--no-nmap", "--ports", "2181"]
+    expect:
+      min_findings: 0
+
+  # --- ZooKeeper 3.9 ---
+  - name: zk39-scan-completes
+    type: beacon
+    target: localhost:20591
+    args: ["--no-enrich", "--no-nmap", "--ports", "2181"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

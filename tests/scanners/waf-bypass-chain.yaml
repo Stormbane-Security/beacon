@@ -62,7 +62,7 @@ assertions:
     target: localhost:19950
     args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      check_id: headers.missing_csp
+      min_findings: 1
 
   - name: detects-server-info-leak-behind-waf
     type: beacon

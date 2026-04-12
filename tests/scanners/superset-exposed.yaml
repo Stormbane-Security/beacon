@@ -35,4 +35,18 @@ assertions:
     expect:
       check_id: port.superset_exposed
 
+  - name: deep-mode-superset
+    type: beacon
+    target: localhost:8088
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "8088"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-superset
+    type: beacon
+    target: localhost:8088
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "8088"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

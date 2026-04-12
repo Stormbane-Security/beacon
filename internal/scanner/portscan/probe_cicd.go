@@ -49,7 +49,15 @@ func detectGitLab(ctx context.Context, host string, port int, _ string, makeF fi
 		return nil
 	}
 	lower := strings.ToLower(body)
-	if !strings.Contains(lower, "gitlab") {
+	// Require GitLab-specific indicators, not just the word "gitlab" which
+	// appears in other git hosting tools (Gitea, Gogs) as comparison text.
+	isGitLab := strings.Contains(lower, "gon.gitlab") ||
+		strings.Contains(lower, "gitlab-ce") || strings.Contains(lower, "gitlab-ee") ||
+		strings.Contains(lower, "gitlab_workhorse") ||
+		strings.Contains(body, "GitLab Community Edition") ||
+		strings.Contains(body, "GitLab Enterprise Edition") ||
+		(strings.Contains(lower, "gitlab") && strings.Contains(lower, "sign in to gitlab"))
+	if !isGitLab {
 		return nil
 	}
 
@@ -134,6 +142,13 @@ func detectBamboo(ctx context.Context, host string, port int, _ string, makeF fi
 		"service": "bamboo",
 		"proof":   fmt.Sprintf("curl -s http://%s:%d/ | grep -i bamboo", host, port),
 	}
+	// Extract Bamboo version from /rest/api/latest/info (returns JSON with {"version":"9.6.4",...}).
+	if infoBody, infoOK := probeHTTPBody(ctx, host, port, false, "/rest/api/latest/info"); infoOK {
+		if ver := parseJSONStringField(infoBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Atlassian Bamboo " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortBambooExposed,
 		finding.SeverityHigh,
@@ -190,15 +205,12 @@ func detectNFS(ctx context.Context, host string, port int, _ string, makeF findi
 func detectHazelcast(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
 	body, ok := probeHTTPBody(ctx, host, port, false, "/hazelcast/rest/cluster")
 	if !ok {
-		// Hazelcast may not have REST API enabled; try a raw TCP connection check.
-		body, ok = probeHTTPAnyBody(ctx, host, port, false, "/")
-		if !ok || !strings.Contains(strings.ToLower(body), "hazelcast") {
-			return nil
-		}
+		return nil
 	}
 	lower := strings.ToLower(body)
-	if !strings.Contains(lower, "hazelcast") && !strings.Contains(lower, "member") &&
-		!strings.Contains(lower, "cluster") {
+	// Require "hazelcast" in the response — "member" and "cluster" alone
+	// match too many other services (Adminer, Elasticsearch, etc.).
+	if !strings.Contains(lower, "hazelcast") {
 		return nil
 	}
 
@@ -206,6 +218,23 @@ func detectHazelcast(ctx context.Context, host string, port int, _ string, makeF
 		"port":    port,
 		"service": "hazelcast",
 		"proof":   fmt.Sprintf("curl -s http://%s:%d/hazelcast/rest/cluster", host, port),
+	}
+	// Extract Hazelcast version from /hazelcast/health (returns JSON with version).
+	if healthBody, healthOK := probeHTTPBody(ctx, host, port, false, "/hazelcast/health"); healthOK {
+		if ver := parseJSONStringField(healthBody, "hazelcastVersion"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Hazelcast " + ver
+		} else if ver := parseJSONStringField(healthBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Hazelcast " + ver
+		}
+	}
+	// Also try from the cluster response body.
+	if ev["version"] == nil {
+		if ver := parseJSONStringField(body, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Hazelcast " + ver
+		}
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortHazelcastExposed,

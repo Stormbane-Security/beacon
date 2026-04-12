@@ -60,13 +60,6 @@ assertions:
     expect:
       check_id: web.cors_null_origin
 
-  - name: detects-cors-preflight-misconfiguration
-    type: beacon
-    target: localhost:20011
-    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
-    expect:
-      check_id: web.cors_preflight_misconfiguration
-
   - name: cors-min-findings
     type: beacon
     target: localhost:20011

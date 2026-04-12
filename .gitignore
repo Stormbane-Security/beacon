@@ -61,3 +61,5 @@ beacon-crawler
 beacon-fuzz
 beacon-testgen
 beacon-vulndb
+tests/scanners/OneDrive_*.tmp
+*.zip.tmp

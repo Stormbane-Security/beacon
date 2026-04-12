@@ -238,7 +238,7 @@ func TestMapOSVSeverity(t *testing.T) {
 		{"high", finding.SeverityHigh},
 		{"medium", finding.SeverityMedium},
 		{"low", finding.SeverityLow},
-		{"", finding.SeverityHigh}, // unknown defaults to high
+		{"", finding.SeverityInfo}, // empty severity = distro advisory, not security vuln
 		{"CRITICAL", finding.SeverityCritical},
 	}
 	for _, tc := range cases {

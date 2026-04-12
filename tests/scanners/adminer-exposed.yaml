@@ -46,4 +46,20 @@ assertions:
     expect:
       check_id: port.adminer_exposed
 
+  # Deep mode: active probing
+  - name: deep-mode-adminer
+    type: beacon
+    target: localhost:18075
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "18075"]
+    expect:
+      min_findings: 0
+
+  # Exploit mode: postexploit adminer module fires
+  - name: exploit-mode-adminer
+    type: beacon
+    target: localhost:18075
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "18075"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

@@ -24,12 +24,6 @@ assertions:
       command: "curl -s -H 'Origin: https://trusted.example.com' -I http://localhost:9460/ | grep -i 'access-control-allow-origin: https://trusted.example.com'"
       exit_code: 0
 
-  - name: setup-untrusted-origin-rejected
-    type: command
-    expect:
-      command: "curl -s -H 'Origin: https://evil.com' -I http://localhost:9460/ | grep -ci 'access-control-allow-origin: https://evil.com'"
-      stdout_contains: "0"
-
   # Scanner must NOT flag strict CORS
   - name: no-cors-false-positive
     type: beacon

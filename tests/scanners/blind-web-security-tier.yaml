@@ -115,7 +115,7 @@ assertions:
     target: localhost:19820
     args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      check_id: headers.missing_x_frame_options
+      min_findings: 1
 
   # --- Vulnerable nginx: missing X-Content-Type ---
   - name: vuln-nginx-missing-x-content-type

@@ -1,0 +1,26 @@
+name: source-map-exposed
+description: "Web server with JavaScript source map (.js.map) accessible"
+tags: [exposure, source-map, sensitive-file]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./source-map/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-source-map-exposed
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+      has_check_id: "exposure.source_maps_exposed"
+
+timeout: 5m

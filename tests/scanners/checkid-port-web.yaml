@@ -1,0 +1,269 @@
+name: checkid-port-web
+description: >
+  Grouped check ID coverage for web framework port.* findings. Reuses
+  existing fixture build contexts for lightweight framework fingerprinting.
+  Covers: django_detected, fastapi_detected, express_detected, rails_detected,
+  laravel_detected, ghost_detected, aspnet_detected, spring_actuator_exposed.
+tags: [checkid, web, portscan, framework, detection]
+
+services:
+  # ── Lightweight build-context services (existing fixtures) ──────────
+  django:
+    build:
+      context: ./django-debug
+      dockerfile: Dockerfile
+    ports: ["20953:8000"]
+
+  fastapi:
+    build:
+      context: ./fastapi-docs
+      dockerfile: Dockerfile
+    ports: ["20954:8000"]
+
+  express:
+    build:
+      context: ./express-app
+      dockerfile: Dockerfile
+    ports: ["20955:3000"]
+
+  rails:
+    build:
+      context: ./rails-app
+      dockerfile: Dockerfile
+    ports: ["20956:3000"]
+
+  laravel:
+    build:
+      context: ./laravel-debug
+      dockerfile: Dockerfile
+    ports: ["20957:8000"]
+
+  # ── Real Docker images ─────────────────────────────────────────────
+  ghost:
+    image: ghost:5-alpine
+    ports: ["20958:2368"]
+    environment:
+      NODE_ENV: development
+      url: "http://localhost:20958"
+
+  spring:
+    image: arey/springboot-petclinic:latest
+    ports: ["20959:8080"]
+    environment:
+      MANAGEMENT_ENDPOINTS_WEB_BASEPATH: "/actuator"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "*"
+      MANAGEMENT_ENDPOINT_ENV_ENABLED: "true"
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+
+  metabase:
+    image: metabase/metabase:latest
+    ports: ["20960:3000"]
+    environment:
+      MB_JETTY_PORT: "3000"
+
+ready:
+  cmd: "curl -sf http://localhost:20953/ >/dev/null && curl -sf http://localhost:20954/ >/dev/null && curl -sf http://localhost:20955/health >/dev/null && curl -sf http://localhost:20956/ >/dev/null && curl -sf http://localhost:20957/ >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # DJANGO: port.django_detected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-django
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20953/ | grep -qi django"
+      exit_code: 0
+
+  - name: checkid-django-detected
+    type: beacon
+    target: localhost:20953
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20953"]
+    expect:
+      check_id: port.django_detected
+
+  - name: exploit-django
+    type: beacon
+    target: localhost:20953
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20953", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FASTAPI: port.fastapi_detected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-fastapi
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20954/openapi.json | grep -q openapi"
+      exit_code: 0
+
+  - name: checkid-fastapi-detected
+    type: beacon
+    target: localhost:20954
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20954"]
+    expect:
+      check_id: port.fastapi_detected
+
+  - name: exploit-fastapi
+    type: beacon
+    target: localhost:20954
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20954", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPRESS: port.express_detected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-express
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20955/ | grep -qi 'X-Powered-By: Express'"
+      exit_code: 0
+
+  - name: checkid-express-detected
+    type: beacon
+    target: localhost:20955
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20955"]
+    expect:
+      check_id: port.express_detected
+
+  - name: exploit-express
+    type: beacon
+    target: localhost:20955
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20955", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # RAILS: port.rails_detected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-rails
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20956/ | grep -qi 'X-Runtime'"
+      exit_code: 0
+
+  - name: checkid-rails-detected
+    type: beacon
+    target: localhost:20956
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20956"]
+    expect:
+      check_id: port.rails_detected
+
+  - name: exploit-rails
+    type: beacon
+    target: localhost:20956
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20956", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # LARAVEL: port.laravel_detected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-laravel
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20957/ | grep -qi 'laravel_session'"
+      exit_code: 0
+
+  - name: checkid-laravel-detected
+    type: beacon
+    target: localhost:20957
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20957"]
+    expect:
+      check_id: port.laravel_detected
+
+  - name: exploit-laravel
+    type: beacon
+    target: localhost:20957
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20957", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # GHOST: port.ghost_detected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-ghost-detected
+    type: beacon
+    target: localhost:20958
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20958"]
+    expect:
+      check_id: port.ghost_detected
+
+  - name: exploit-ghost
+    type: beacon
+    target: localhost:20958
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20958", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SPRING BOOT: port.spring_actuator_exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-spring-actuator-exposed
+    type: beacon
+    target: localhost:20959
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20959"]
+    expect:
+      check_id: port.spring_actuator_exposed
+
+  - name: exploit-spring
+    type: beacon
+    target: localhost:20959
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20959", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # METABASE: port.metabase_exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-metabase-exposed
+    type: beacon
+    target: localhost:20960
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20960"]
+    expect:
+      check_id: port.metabase_exposed
+
+  - name: exploit-metabase
+    type: beacon
+    target: localhost:20960
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20960", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-django-no-express
+    type: beacon
+    target: localhost:20953
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20953"]
+    expect:
+      not_check_id: port.express_detected
+
+  - name: negative-express-no-django
+    type: beacon
+    target: localhost:20955
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20955"]
+    expect:
+      not_check_id: port.django_detected
+
+  - name: negative-rails-no-laravel
+    type: beacon
+    target: localhost:20956
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20956"]
+    expect:
+      not_check_id: port.laravel_detected
+
+timeout: 12m

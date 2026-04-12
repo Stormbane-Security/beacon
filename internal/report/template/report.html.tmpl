@@ -22,20 +22,32 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.6; }
-  a { color: var(--accent); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
 
-  .wrapper { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+  .wrapper { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
 
-  /* Header */
+  /* Header / Cover */
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
   .header-brand { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
   .header-domain { font-size: 26px; font-weight: 700; margin-top: 6px; }
   .header-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
   .header-right { text-align: right; font-size: 13px; color: var(--muted); }
 
+  /* Risk score gauge */
+  .risk-score { display: flex; align-items: center; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 24px; }
+  .risk-score .score-value { font-size: 48px; font-weight: 800; line-height: 1; }
+  .risk-score .score-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .risk-score .score-desc { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .risk-critical { color: var(--critical); }
+  .risk-high { color: var(--high); }
+  .risk-medium { color: var(--medium); }
+  .risk-low { color: var(--low); }
+  .risk-info { color: var(--green); }
+
   /* Severity summary bar */
   .severity-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
-  .sev-badge { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; }
+  .sev-badge { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; flex: 1; min-width: 100px; }
   .sev-badge .count { font-size: 22px; font-weight: 700; }
   .sev-badge .label { font-size: 12px; color: var(--muted); }
   .sev-badge.critical .count { color: var(--critical); }
@@ -49,6 +61,24 @@
   .exec-summary h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
   .exec-summary p { line-height: 1.7; }
 
+  /* Table of contents */
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 12px; }
+  .toc-list { list-style: none; padding: 0; }
+  .toc-list li { padding: 4px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .toc-list .toc-sev { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .toc-list .toc-sev.critical { background: var(--critical); }
+  .toc-list .toc-sev.high { background: var(--high); }
+  .toc-list .toc-sev.medium { background: var(--medium); }
+  .toc-list .toc-sev.low { background: var(--low); }
+  .toc-list .toc-sev.info { background: var(--info); }
+
+  /* Target overview */
+  .target-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; text-align: center; }
+  .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-card .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
+
   /* Section headers */
   h2.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 
@@ -57,6 +87,7 @@
   .finding-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
   .finding-title { font-weight: 600; font-size: 16px; }
   .finding-asset { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .finding-check { font-size: 11px; color: var(--muted); font-family: 'SF Mono', 'Fira Code', monospace; margin-top: 2px; }
   .badge { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px; border-radius: 4px; }
   .badge.critical { background: rgba(255,68,68,.15); color: var(--critical); }
   .badge.high     { background: rgba(255,140,0,.15); color: var(--high); }
@@ -66,15 +97,48 @@
 
   .finding-body label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 12px 0 4px; }
   .finding-body p { font-size: 14px; line-height: 1.6; }
-  .finding-body pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; margin-top: 4px; }
+  .finding-body pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; margin-top: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
 
-  /* Teaser cards (free tier gated) */
+  /* Evidence table */
+  .evidence-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  .evidence-table th { text-align: left; padding: 6px 10px; background: var(--surface2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--border); }
+  .evidence-table td { padding: 6px 10px; border: 1px solid var(--border); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; word-break: break-all; }
+
+  /* References list */
+  .ref-list { list-style: none; padding: 0; margin-top: 4px; }
+  .ref-list li { font-size: 13px; padding: 2px 0; }
+  .ref-list li:before { content: "\2192"; margin-right: 6px; color: var(--muted); }
+
+  /* Chain narrative */
+  .chain-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--critical); border-radius: 8px; padding: 20px 24px; margin-bottom: 12px; }
+  .chain-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .chain-card .chain-steps { padding-left: 20px; font-size: 14px; line-height: 1.8; }
+  .chain-card .chain-steps li { margin-bottom: 4px; }
+
+  /* Recommendations */
+  .rec-list { list-style: none; padding: 0; }
+  .rec-list li { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 20px; margin-bottom: 8px; font-size: 14px; display: flex; align-items: flex-start; gap: 10px; }
+  .rec-num { background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
   /* Hidden count */
   .hidden-count { text-align: center; padding: 20px; background: var(--surface); border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 14px; }
 
+  /* Appendix */
+  .appendix-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .appendix-table th, .appendix-table td { padding: 8px 12px; border: 1px solid var(--border); font-size: 13px; }
+  .appendix-table th { background: var(--surface2); color: var(--muted); text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .appendix-table tr:nth-child(even) { background: var(--surface); }
+
   /* Footer */
   .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); text-align: center; }
+
+  /* Print styles */
+  @media print {
+    :root { --bg: #fff; --surface: #f8f9fa; --surface2: #eee; --border: #ddd; --text: #1a1a2e; --muted: #666; }
+    body { font-size: 11pt; }
+    .finding { page-break-inside: avoid; }
+    .wrapper { max-width: 100%; padding: 0; }
+  }
 </style>
 </head>
 <body>
@@ -86,13 +150,26 @@
       <div class="header-brand">Beacon by Stormbane Security</div>
       <div class="header-domain">{{.Domain}}</div>
       <div class="header-meta">
-        {{if eq (printf "%s" .ScanType) "deep"}}Deep Scan{{else}}Surface Scan{{end}}
-        &nbsp;·&nbsp; {{.StartedAt.Format "Jan 2, 2006 15:04 UTC"}}
+        {{scanTypeLabel .ScanType}}
+        &nbsp;&middot;&nbsp; {{.StartedAt.Format "Jan 2, 2006 15:04 UTC"}}
+        {{if not .CompletedAt.IsZero}}&nbsp;&middot;&nbsp; Duration: {{duration .StartedAt .CompletedAt}}{{end}}
       </div>
     </div>
     <div class="header-right">
-      <div>{{len .View.VisibleFindings}} visible findings</div>
+      <div>{{.TotalFindings}} findings</div>
       <div>{{len .View.SuppressedFindings}} suppressed</div>
+      {{if .Modules}}<div>{{len .Modules}} scanners</div>{{end}}
+    </div>
+  </div>
+
+  <!-- Risk Score -->
+  <div class="risk-score">
+    <div>
+      <div class="score-value {{riskClass .SeverityCounts}}">{{riskScore .SeverityCounts}}</div>
+      <div class="score-label">Risk Score</div>
+    </div>
+    <div>
+      <div class="score-desc">{{riskDescription .SeverityCounts}}</div>
     </div>
   </div>
 
@@ -105,6 +182,26 @@
     <div class="sev-badge info"><span class="count">{{.SeverityCounts.Info}}</span><span class="label">Info</span></div>
   </div>
 
+  <!-- Target Overview -->
+  <div class="target-overview">
+    <div class="stat-card">
+      <div class="stat-value">{{.TotalFindings}}</div>
+      <div class="stat-label">Total Findings</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{.UniqueAssets}}</div>
+      <div class="stat-label">Assets Scanned</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{len .Modules}}</div>
+      <div class="stat-label">Scanners Run</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{.ChainCount}}</div>
+      <div class="stat-label">Attack Chains</div>
+    </div>
+  </div>
+
   <!-- Executive summary -->
   {{if .View.ExecutiveSummary}}
   <div class="exec-summary">
@@ -113,42 +210,164 @@
   </div>
   {{end}}
 
+  <!-- Table of Contents -->
+  {{if .View.VisibleFindings}}
+  <div class="toc">
+    <h2>Table of Contents</h2>
+    <ol class="toc-list">
+    {{range $i, $f := .View.VisibleFindings}}
+      <li>
+        <span class="toc-sev {{severityClass $f.Finding.Severity}}"></span>
+        <a href="#finding-{{$i}}">{{$f.Finding.Title}}</a>
+        <span style="color:var(--muted);font-size:12px;margin-left:auto;">{{$f.Finding.Asset}}</span>
+      </li>
+    {{end}}
+    </ol>
+  </div>
+  {{end}}
+
+  <!-- Top Recommendations -->
+  {{if .Recommendations}}
+  <h2 class="section-title">Key Recommendations</h2>
+  <ol class="rec-list">
+  {{range $i, $r := .Recommendations}}
+    <li><span class="rec-num">{{inc $i}}</span> {{$r}}</li>
+  {{end}}
+  </ol>
+  {{end}}
+
+  <!-- Attack Chains -->
+  {{if .Chains}}
+  <h2 class="section-title">Attack Chains</h2>
+  {{range .Chains}}
+  <div class="chain-card">
+    <h3>{{.Finding.Title}}</h3>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:8px;">{{.Finding.Asset}}</p>
+    {{if .Explanation}}<p style="font-size:14px;margin-bottom:8px;">{{.Explanation}}</p>{{end}}
+    {{if .Finding.Description}}<p style="font-size:14px;">{{.Finding.Description}}</p>{{end}}
+  </div>
+  {{end}}
+  {{end}}
+
   <!-- Visible findings (full detail) -->
   {{if .View.VisibleFindings}}
   <h2 class="section-title">Findings</h2>
-  {{range .View.VisibleFindings}}
-  <div class="finding">
+  {{range $i, $f := .View.VisibleFindings}}
+  <div class="finding" id="finding-{{$i}}">
     <div class="finding-header">
       <div>
-        <div class="finding-title">{{.Finding.Title}}</div>
-        <div class="finding-asset">{{.Finding.Asset}}</div>
+        <div class="finding-title">{{$f.Finding.Title}}</div>
+        <div class="finding-asset">{{$f.Finding.Asset}}</div>
+        <div class="finding-check">{{$f.Finding.CheckID}}</div>
       </div>
-      <span class="badge {{severityClass .Finding.Severity}}">{{severityLabel .Finding.Severity}}</span>
+      <span class="badge {{severityClass $f.Finding.Severity}}">{{severityLabel $f.Finding.Severity}}</span>
     </div>
     <div class="finding-body">
-      <label>What it means</label>
-      <p>{{if .Explanation}}{{.Explanation}}{{else}}{{.Finding.Description}}{{end}}</p>
-      {{if .Impact}}
+      <label>Description</label>
+      <p>{{if $f.Explanation}}{{$f.Explanation}}{{else}}{{$f.Finding.Description}}{{end}}</p>
+
+      {{if $f.Impact}}
       <label>Impact</label>
-      <p>{{.Impact}}</p>
+      <p>{{$f.Impact}}</p>
       {{end}}
-      {{if .Remediation}}
-      <label>How to fix</label>
-      <pre>{{.Remediation}}</pre>
+
+      {{if hasEvidence $f.Finding}}
+      <label>Evidence</label>
+      <table class="evidence-table">
+        <thead><tr><th>Key</th><th>Value</th></tr></thead>
+        <tbody>
+        {{range $k, $v := $f.Finding.Evidence}}{{if ne $k "image_b64"}}
+        <tr><td>{{$k}}</td><td>{{truncate (printf "%v" $v) 300}}</td></tr>
+        {{end}}{{end}}
+        </tbody>
+      </table>
+      {{end}}
+
+      {{if $f.Finding.ProofCommand}}
+      <label>Proof Command</label>
+      <pre>{{$f.Finding.ProofCommand}}</pre>
+      {{end}}
+
+      {{if $f.Remediation}}
+      <label>Remediation</label>
+      <pre>{{$f.Remediation}}</pre>
+      {{end}}
+
+      {{if $f.TechSpecificRemediation}}
+      <label>Tech-Specific Fix</label>
+      <pre>{{$f.TechSpecificRemediation}}</pre>
+      {{end}}
+
+      {{if $f.ComplianceTags}}
+      <label>Compliance</label>
+      <p>{{joinStrings $f.ComplianceTags ", "}}</p>
+      {{end}}
+
+      {{if $f.Finding.Confidence}}
+      <label>Confidence</label>
+      <p>{{$f.Finding.Confidence}}</p>
       {{end}}
     </div>
   </div>
   {{end}}
   {{end}}
 
+  <!-- Suppressed findings summary -->
+  {{if .View.SuppressedFindings}}
+  <h2 class="section-title">Suppressed Findings</h2>
+  <div class="hidden-count">
+    {{len .View.SuppressedFindings}} findings suppressed (accepted risk / false positive)
+  </div>
+  <table class="appendix-table" style="margin-top:12px;">
+    <thead><tr><th>Severity</th><th>Check ID</th><th>Asset</th><th>Title</th></tr></thead>
+    <tbody>
+    {{range .View.SuppressedFindings}}
+    <tr>
+      <td><span class="badge {{severityClass .Finding.Severity}}">{{severityLabel .Finding.Severity}}</span></td>
+      <td style="font-family:monospace;font-size:12px;">{{.Finding.CheckID}}</td>
+      <td>{{.Finding.Asset}}</td>
+      <td>{{.Finding.Title}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+
   <!-- What was scanned -->
   {{if .Modules}}
-  <h2 class="section-title">What Was Scanned</h2>
+  <h2 class="section-title">Methodology</h2>
   <div class="finding">
-    <ul style="padding-left:20px;font-size:14px;color:var(--muted);">
+    <p style="font-size:14px;color:var(--muted);margin-bottom:12px;">
+      Beacon performed a {{scanTypeLabel .ScanType | lower}} scan of <strong>{{.Domain}}</strong>
+      using {{len .Modules}} scanner modules. The scan started at {{.StartedAt.Format "2006-01-02 15:04:05 UTC"}}{{if not .CompletedAt.IsZero}} and completed at {{.CompletedAt.Format "2006-01-02 15:04:05 UTC"}} (duration: {{duration .StartedAt .CompletedAt}}){{end}}.
+    </p>
+    <label>Scanners Executed</label>
+    <ul style="padding-left:20px;font-size:14px;color:var(--muted);margin-top:8px;">
       {{range .Modules}}<li>{{.}}</li>{{end}}
     </ul>
   </div>
+  {{end}}
+
+  <!-- Appendix: Full finding details -->
+  {{if .View.VisibleFindings}}
+  <h2 class="section-title">Appendix: Finding Summary Table</h2>
+  <table class="appendix-table">
+    <thead>
+      <tr><th>#</th><th>Severity</th><th>Check ID</th><th>Asset</th><th>Title</th><th>Confidence</th></tr>
+    </thead>
+    <tbody>
+    {{range $i, $f := .View.VisibleFindings}}
+    <tr>
+      <td>{{inc $i}}</td>
+      <td><span class="badge {{severityClass $f.Finding.Severity}}">{{severityLabel $f.Finding.Severity}}</span></td>
+      <td style="font-family:monospace;font-size:12px;">{{$f.Finding.CheckID}}</td>
+      <td>{{$f.Finding.Asset}}</td>
+      <td>{{$f.Finding.Title}}</td>
+      <td>{{if $f.Finding.Confidence}}{{$f.Finding.Confidence}}{{else}}-{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
   {{end}}
 
   <div class="footer">

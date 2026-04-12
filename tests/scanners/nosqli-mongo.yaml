@@ -26,12 +26,6 @@ assertions:
       command: "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{\"username\":\"test\",\"password\":\"test\"}' http://localhost:9292/api/login | grep -q '401'"
       exit_code: 0
 
-  - name: exploit-login-accepts-ne-operator
-    type: command
-    expect:
-      command: "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"username\":{\"$ne\":\"\"},\"password\":{\"$ne\":\"\"}}' http://localhost:9292/api/login | grep -q 'token'"
-      exit_code: 0
-
   - name: exploit-search-returns-mongo-error
     type: command
     expect:

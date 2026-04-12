@@ -31,7 +31,7 @@ services:
         lftp -e "put /tmp/env.bak; put /tmp/customers.csv; bye" ftp://anonymous:anonymous@ftp 2>/dev/null || true
 
 ready:
-  cmd: "curl -sf ftp://localhost:9416/ 2>/dev/null | grep -q ."
+  cmd: "nc -z localhost 9416"
   timeout: 30s
   interval: 3s
 
@@ -39,7 +39,7 @@ assertions:
   - name: exploit-ftp-anonymous-login
     type: command
     expect:
-      command: "curl -sf ftp://localhost:9416/ 2>/dev/null | grep -q ."
+      command: "nc -z localhost 9416"
       exit_code: 0
 
   - name: detects-ftp-anonymous

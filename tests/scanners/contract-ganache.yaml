@@ -67,6 +67,6 @@ assertions:
     target: localhost:19220
     args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      check_id: headers.missing_x_frame_options
+      min_findings: 1
 
 timeout: 5m

@@ -143,10 +143,27 @@ func (s *Scanner) Name() string { return scannerName }
 // containing hyphens at label boundaries, non-alnum characters, or sequences
 // that could be interpreted as CLI flags (e.g. "--config").
 func isValidHostname(s string) bool {
-	if len(s) == 0 || len(s) > 253 {
+	// Strip port suffix (e.g. "localhost:8080" → "localhost") before
+	// validating the hostname portion. The port is valid for nuclei targets.
+	host := s
+	if idx := strings.LastIndex(s, ":"); idx > 0 {
+		portPart := s[idx+1:]
+		allDigits := true
+		for _, c := range portPart {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			host = s[:idx]
+		}
+	}
+
+	if len(host) == 0 || len(host) > 253 {
 		return false
 	}
-	for _, label := range strings.Split(s, ".") {
+	for _, label := range strings.Split(host, ".") {
 		if len(label) == 0 || len(label) > 63 {
 			return false
 		}
@@ -196,18 +213,25 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, fmt.Errorf("nuclei: %w", err)
 	}
 
-	templateList := s.surfaceList
-	// Exploitation probes require --authorized (beyond --deep).
-	if scanType == module.ScanAuthorized {
-		templateList = s.deepList
+	// Use tag-based filtering: surface mode runs safe/passive templates,
+	// authorized mode enables exploitation templates.
+	_ = s.surfaceList // template list files no longer used (nuclei v3.x uses -tags)
+	_ = s.deepList
+
+	// Ensure target has a scheme — nuclei with -no-httpx doesn't
+	// auto-detect the scheme from bare host:port.
+	target := asset
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
 	}
 
 	args := []string{
-		"-target", asset,
-		"-tl", templateList, // template list file
-		"-json-export", "-", // JSON output to stdout
-		"-silent",
-		"-no-color",
+		"-target", target,
+		"-jsonl",     // JSONL to stdout (v3.x)
+		"-no-color",  // no ANSI codes
+		"-omit-raw",  // exclude full request/response from JSONL
+		// NOTE: -silent suppresses -jsonl stdout in v3.x, so we omit it.
+		// The parser ignores non-JSON lines (banner, progress, [WRN]).
 		"-timeout", "30",
 		"-retries", "1",
 		"-no-interactsh",       // skip OOB interaction server (saves 2-3s startup)
@@ -216,11 +240,23 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		"-concurrency", "15",   // parallel template execution
 		"-bulk-size", "15",     // batch requests
 		"-rate-limit", "50",    // 50 req/s max
-		// Never run denial-of-service or crash templates regardless of mode.
-		// These could disrupt the target service even with authorization.
-		"-etags", "dos,crash,destructive",
 		// Skip templates fully covered by native beacon scanners.
-		"-exclude-id", strings.Join(nativelyExcluded, ","),
+		"-eid", strings.Join(nativelyExcluded, ","),
+	}
+
+	// Build excluded tags list — single -etags call (nuclei v3.x
+	// doesn't reliably handle multiple -etags flags).
+	excludeTags := []string{"dos", "crash", "destructive"}
+	if scanType == module.ScanSurface {
+		// Exclude active exploitation tags in surface mode.
+		excludeTags = append(excludeTags, "intrusive", "rce", "sqli", "ssrf", "ssti", "upload", "deserialization")
+	}
+	args = append(args, "-etags", strings.Join(excludeTags, ","))
+
+	// Fingerprint-driven tag selection: if Phase A identified specific
+	// services, only run nuclei templates tagged for those services.
+	if fpTags := TagsFromContext(ctx); len(fpTags) > 0 {
+		args = append(args, "-tags", strings.Join(fpTags, ","))
 	}
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
@@ -291,17 +327,21 @@ func (s *Scanner) RunWithTags(ctx context.Context, asset string, tags []string) 
 		return nil, fmt.Errorf("nuclei: %w", err)
 	}
 
+	target := asset
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
+	}
+
 	args := []string{
-		"-target", asset,
+		"-target", target,
 		"-tags", strings.Join(tags, ","),
-		"-json-export", "-",
-		"-silent",
+		"-jsonl",
 		"-no-color",
 		"-timeout", "30",
 		"-retries", "1",
 		"-etags", "dos,crash,destructive",
 		// Skip templates fully covered by native beacon scanners.
-		"-exclude-id", strings.Join(nativelyExcluded, ","),
+		"-eid", strings.Join(nativelyExcluded, ","),
 	}
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
@@ -350,6 +390,9 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 
 		var r nucleiResult
 		if err := json.Unmarshal(line, &r); err != nil {
+			// Log parse failures for non-empty lines that look like JSON.
+			if len(line) > 0 && line[0] == '{' {
+			}
 			continue // skip malformed lines
 		}
 		if r.TemplateID == "" || r.Info.Name == "" {

@@ -167,6 +167,7 @@ func detectGradio(ctx context.Context, host string, port int, banner string, mak
 	ev := map[string]any{"port": port, "service": "gradio", "banner": banner}
 	if version != "" {
 		ev["gradio_version"] = version
+		ev["version"] = version
 	}
 	if predictNoAuth || noAuth {
 		ev["unauthenticated_predict"] = true
@@ -200,7 +201,7 @@ func detectGradio(ctx context.Context, host string, port int, banner string, mak
 }
 
 func detectAutomatic1111(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/sdapi/v1/options")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/sdapi/v1/options")
 	if !ok {
 		return nil
 	}
@@ -224,7 +225,7 @@ func detectAutomatic1111(ctx context.Context, host string, port int, banner stri
 }
 
 func detectComfyUI(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/system_stats")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/system_stats")
 	if !ok {
 		return nil
 	}
@@ -249,7 +250,7 @@ func detectComfyUI(ctx context.Context, host string, port int, banner string, ma
 }
 
 func detectSGLang(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/v1/models")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/v1/models")
 	if !ok {
 		return nil
 	}
@@ -280,7 +281,7 @@ func detectSGLang(ctx context.Context, host string, port int, banner string, mak
 }
 
 func detectRayDashboard(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/api/version")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/api/version")
 	if !ok {
 		return nil
 	}
@@ -314,7 +315,7 @@ func detectRayDashboard(ctx context.Context, host string, port int, banner strin
 func detectOllama(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	ev := map[string]any{"port": port, "service": "ollama", "banner": banner}
 	// Probe /api/tags — returns model list without authentication on default installs.
-	if body, ok := probeHTTPBody(ctx, host, port, false, "/api/tags"); ok && strings.Contains(body, "models") {
+	if body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/api/tags"); ok && strings.Contains(body, "models") {
 		snippet := body
 		if len(snippet) > 200 {
 			snippet = snippet[:200] + "…"
@@ -332,9 +333,12 @@ func detectOllama(ctx context.Context, host string, port int, banner string, mak
 		)}
 	}
 	// GHSA-q3jj-7xxq-6mgr: Ollama < 0.1.47 directory traversal via model blob endpoint.
-	if vbody, ok := probeHTTPBody(ctx, host, port, false, "/api/version"); ok {
+	if vbody, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/api/version"); ok {
 		if strings.Contains(vbody, "version") {
 			ev["api_version_response"] = vbody
+			if ver := parseJSONStringField(vbody, "version"); ver != "" {
+				ev["version"] = ver
+			}
 			var findings []finding.Finding
 			if isVulnerableOllamaVersion(vbody) {
 				findings = append(findings, makeF(

@@ -89,6 +89,15 @@ func detectNacos(ctx context.Context, host string, port int, banner string, make
 		!strings.Contains(bodyLow, "totalcount") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "nacos",
+		"url": fmt.Sprintf("http://%s:%d/nacos/v1/cs/configs", host, port)}
+	// Extract Nacos version from /nacos/v1/console/server/state (returns JSON with {"version":"2.3.0",...}).
+	if stateBody, stateOK := probeHTTPBody(ctx, host, port, false, "/nacos/v1/console/server/state"); stateOK {
+		if ver := parseJSONStringField(stateBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Nacos " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNacosExposed,
 		finding.SeverityHigh,
@@ -99,8 +108,7 @@ func detectNacos(ctx context.Context, host string, port int, banner string, make
 			"configuration data (including secrets and database passwords), and allows "+
 			"arbitrary configuration injection to all connected microservices. "+
 			"Enable Nacos authentication mode (nacos.core.auth.enabled=true) and rotate default credentials.",
-		map[string]any{"port": port, "service": "nacos",
-			"url": fmt.Sprintf("http://%s:%d/nacos/v1/cs/configs", host, port)},
+		ev,
 	)}
 }
 
@@ -109,6 +117,12 @@ func detectWazuhAPI(ctx context.Context, host string, port int, banner string, m
 	if !ok || !strings.Contains(body, "wazuh") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "wazuh", "banner": banner}
+	// Extract Wazuh version from the API response (e.g. {"data":{"api_version":"4.7.3",...}}).
+	if ver := parseJSONStringField(body, "api_version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Wazuh " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortWazuhAPIExposed,
 		finding.SeverityHigh,
@@ -116,7 +130,7 @@ func detectWazuhAPI(ctx context.Context, host string, port int, banner string, m
 		"The Wazuh SIEM/XDR REST API is publicly accessible. The Wazuh manager API controls "+
 			"all security agents and has access to security alerts, compliance data, and agent commands. "+
 			"Unauthorized access allows reading security alerts, disabling agents, and pivoting to managed endpoints.",
-		map[string]any{"port": port, "service": "wazuh", "banner": banner},
+		ev,
 	)}
 }
 
@@ -259,6 +273,22 @@ func metabaseFinding(host string, port int, useTLS bool, makeF findingMaker) []f
 	if useTLS {
 		s = "https"
 	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "metabase",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/api/session/properties", s, host, port),
+	}
+	// Extract Metabase version from /api/session/properties (returns {"version":{"tag":"v0.49.1",...}}).
+	if apiBody, apiOK := probeHTTPBody(context.Background(), host, port, useTLS, "/api/session/properties"); apiOK {
+		if ver := parseJSONStringField(apiBody, "tag"); ver != "" {
+			ver = strings.TrimPrefix(ver, "v")
+			ev["version"] = ver
+			ev["product"] = "Metabase " + ver
+		} else if ver := parseJSONStringField(apiBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Metabase " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortMetabaseExposed,
 		finding.SeverityHigh,
@@ -267,10 +297,6 @@ func metabaseFinding(host string, port int, useTLS bool, makeF findingMaker) []f
 			"connection credentials and provides direct SQL query access to connected data sources. "+
 			"CVE-2023-38646 (CVSS 9.8) allows unauthenticated RCE on Metabase < 0.46.6.1 via the "+
 			"/api/setup/validate endpoint. Restrict access to trusted networks and update to the latest version.",
-		map[string]any{
-			"port":    port,
-			"service": "metabase",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/api/session/properties", s, host, port),
-		},
+		ev,
 	)}
 }

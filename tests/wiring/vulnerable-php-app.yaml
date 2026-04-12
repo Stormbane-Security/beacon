@@ -1,0 +1,58 @@
+name: vulnerable-php-app
+description: >
+  PHP app with known vulnerable endpoints: phpinfo.php, .env file,
+  exposed .git directory, and server-status. Verifies exposedfiles
+  scanner finds all of them — this is the baseline for what we should
+  detect on targets like testphp.vulnweb.com.
+tags: [wiring, exposedfiles, php, regression]
+
+services:
+  php:
+    image: php:8.2-apache
+    ports: ["80:80"]
+    command: >
+      sh -c '
+        echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php &&
+        echo "<?php phpinfo(); ?>" > /var/www/html/info.php &&
+        printf "DATABASE_URL=mysql://root:secret@db:3306/app\nSECRET_KEY=abc123\nAPI_KEY=sk_live_test\n" > /var/www/html/.env &&
+        mkdir -p /var/www/html/.git &&
+        printf "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = git@github.com:example/app.git\n" > /var/www/html/.git/config &&
+        echo "ref: refs/heads/main" > /var/www/html/.git/HEAD &&
+        apache2-foreground
+      '
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-phpinfo
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+
+  - name: detects-env-file
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      has_check_id: "exposure.env_file_exposed"
+
+  - name: detects-git-exposed
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      has_check_id: "exposure.git_exposed"
+
+  - name: secheaders-runs
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 3
+
+timeout: 5m

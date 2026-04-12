@@ -1,0 +1,62 @@
+name: e2e-multiservice-chain
+description: >
+  End-to-end multi-service test: Redis + PostgreSQL detected independently.
+  Verifies beacon correctly identifies and doesn't cross-contaminate
+  findings between different services.
+tags: [e2e, multiservice, redis, postgresql, chain, integration]
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["20603:6379"]
+  postgres:
+    image: postgres:16-alpine
+    ports: ["20604:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+
+ready:
+  cmd: "redis-cli -h localhost -p 20603 PING | grep -q PONG && nc -z localhost 20604"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Redis detection
+  - name: redis-detected
+    type: beacon
+    target: localhost:20603
+    args: ["--no-enrich", "--no-nmap", "--ports", "20603"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: redis-exploit-mode
+    type: beacon
+    target: localhost:20603
+    args: ["--no-enrich", "--no-nmap", "--ports", "20603", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # PostgreSQL detection
+  - name: postgres-detected
+    type: beacon
+    target: localhost:20604
+    args: ["--no-enrich", "--no-nmap", "--ports", "20604"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: postgres-exploit-mode
+    type: beacon
+    target: localhost:20604
+    args: ["--no-enrich", "--no-nmap", "--ports", "20604", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # Exploit proofs
+  - name: postexploit-redis-write-read
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20603 SET e2e:chain:test proof && redis-cli -h localhost -p 20603 GET e2e:chain:test | grep -q proof"
+      exit_code: 0
+
+
+timeout: 5m

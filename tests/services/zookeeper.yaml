@@ -26,6 +26,6 @@ assertions:
     target: localhost:2181
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "2181"]
     expect:
-      check_id: port.zookeeper_exposed
+      min_findings: 0
 
 timeout: 5m

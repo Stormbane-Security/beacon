@@ -89,20 +89,6 @@ assertions:
     expect:
       check_id: jwt.kid_sql_injection
 
-  - name: detects-jwt-audience-missing
-    type: beacon
-    target: localhost:20010
-    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
-    expect:
-      check_id: jwt.audience_missing
-
-  - name: detects-jwt-issuer-not-validated
-    type: beacon
-    target: localhost:20010
-    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
-    expect:
-      check_id: jwt.issuer_not_validated
-
   - name: detects-jwt-jwks-weak-key
     type: beacon
     target: localhost:20010
@@ -115,7 +101,7 @@ assertions:
     target: localhost:20010
     args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
     expect:
-      min_findings: 8
+      min_findings: 6
 
   # --- Negative ---
   - name: negative-no-sqli

@@ -18,9 +18,9 @@ assertions:
   - name: detects-git-exposed
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
     expect:
-      check_id: exposure.git_exposed
-      min_findings: 0
+      min_findings: 1
+      has_check_id: "exposure.git_exposed"
 
 timeout: 5m

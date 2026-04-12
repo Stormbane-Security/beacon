@@ -24,7 +24,7 @@ services:
 
 ready:
   cmd: "nc -z localhost 9415 2>/dev/null"
-  timeout: 30s
+  timeout: 60s
   interval: 2s
 
 assertions:

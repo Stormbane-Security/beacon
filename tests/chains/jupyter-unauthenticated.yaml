@@ -29,6 +29,6 @@ assertions:
     target: "localhost:9426"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9426"]
     expect:
-      check_id: port.jupyter_unauthenticated
+      check_id: port.jupyter_no_auth
 
 timeout: 5m

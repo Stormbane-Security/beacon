@@ -1,0 +1,58 @@
+name: correlation-jwt-auth-bypass
+description: >
+  Multi-service correlation test: JWT app with weak algorithm (alg:none) +
+  auth endpoints. The JWT scanner detects the weakness, and the auth/exposure
+  scanners detect protected endpoints. The correlation engine should fire
+  the jwt_auth_bypass chain linking JWT forgery to data access.
+tags: [correlation, jwt, authbypass, chain, multi-service, integration]
+
+services:
+  jwt-app:
+    image: node:20-alpine
+    ports: ["20902:3000"]
+    volumes:
+      - ./jwt-weak/server.js:/app/server.js:ro
+    working_dir: /app
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20902/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: JWT app responds and issues tokens
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-jwt-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20902/health | grep -q ok"
+      exit_code: 0
+
+  - name: preflight-jwt-login-issues-token
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20902/login | grep -q token"
+      exit_code: 0
+
+  - name: surface-detects-jwt-weakness
+    type: beacon
+    target: http://localhost:20902
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--ports", "20902"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: forge a token with alg:none and access protected data
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: correlation-jwt-auth-bypass-chain
+    type: beacon
+    target: http://localhost:20902
+    args: ["--no-enrich", "--no-nmap", "--ports", "20902", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

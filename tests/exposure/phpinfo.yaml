@@ -1,0 +1,37 @@
+name: phpinfo-exposed
+description: "PHP server with phpinfo.php page accessible — leaks full server configuration"
+tags: [exposure, php, phpinfo]
+
+services:
+  php:
+    image: php:8.2-apache
+    ports: ["80:80"]
+    command: >
+      sh -c '
+        echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php &&
+        echo "<?php phpinfo(); ?>" > /var/www/html/info.php &&
+        apache2-foreground
+      '
+
+ready:
+  cmd: "curl -sf http://localhost:80/phpinfo.php >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-phpinfo
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+
+  - name: detects-secheaders-missing
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 3
+      has_check_id: "headers.missing_csp"
+
+timeout: 5m

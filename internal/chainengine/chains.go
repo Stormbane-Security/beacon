@@ -39,6 +39,7 @@ var DefaultChains = []Chain{
 	chainSQLiToCredentialDump,
 	chainXSSToSessionTheftPoC,
 	nucleiToExploitChain,
+	nseToExploitChain,
 }
 
 // safetyModuleName returns the chainengine safety module name for a chain.

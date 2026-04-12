@@ -137,6 +137,24 @@ func init() {
 		Detect:       detectViteDev,
 	})
 	registerProbe(ServiceProbe{
+		Name:         "docker-registry",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{5000, 5001},
+		Detect:       detectDockerRegistry,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "traefik-dashboard",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 8443},
+		Detect:       detectTraefikDashboard,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "vault-unsealed",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8200},
+		Detect:       detectVaultUnsealed,
+	})
+	registerProbe(ServiceProbe{
 		Name:         "ingress-nginx-admission",
 		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
@@ -280,6 +298,24 @@ func init() {
 		DefaultPorts: []int{8000, 80},
 		Detect:       detectFastAPI,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "magento",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectMagento,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "confluence",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8090, 443, 80},
+		Detect:       detectConfluence,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "jira",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 443, 80},
+		Detect:       detectJira,
+	})
 }
 
 func detectJupyter(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -287,13 +323,21 @@ func detectJupyter(ctx context.Context, host string, port int, banner string, ma
 	if !exposed {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "jupyter", "authenticated": false, "banner": banner}
+	// Extract Jupyter version from /api endpoint (returns {"version":"7.0.6",...}).
+	if apiBody, apiOK := probeHTTPBody(ctx, host, port, false, "/api"); apiOK {
+		if ver := parseJSONStringField(apiBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Jupyter " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortJupyterExposed,
 		finding.SeverityCritical,
 		fmt.Sprintf("Jupyter Notebook exposed on port %d", port),
 		"A Jupyter Notebook server is publicly accessible. "+
 			"Jupyter provides arbitrary code execution and full filesystem access to the server.",
-		map[string]any{"port": port, "service": "jupyter", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -304,13 +348,21 @@ func detectPrometheus(ctx context.Context, host string, port int, banner string,
 	if !ok || !strings.Contains(body, "activeTargets") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "prometheus", "authenticated": false, "banner": banner}
+	// Extract Prometheus version from /api/v1/status/buildinfo (already unauthenticated).
+	if buildBody, buildOK := probeHTTPBody(ctx, host, port, false, "/api/v1/status/buildinfo"); buildOK {
+		if ver := parseJSONStringField(buildBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Prometheus " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortPrometheusUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated Prometheus exposed on port %d", port),
 		"A Prometheus metrics server is accessible without authentication. "+
 			"Internal infrastructure topology, host names, and service metadata are exposed.",
-		map[string]any{"port": port, "service": "prometheus", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -326,6 +378,8 @@ func detectKibana(ctx context.Context, host string, port int, banner string, mak
 		return nil
 	}
 	ev["kibana_version"] = kibanaVer
+	ev["version"] = kibanaVer
+	ev["product"] = "Kibana " + kibanaVer
 	var findings []finding.Finding
 	// Always emit exposed dashboard finding — Kibana should never be public.
 	findings = append(findings, makeF(
@@ -380,6 +434,16 @@ func detectConsul(ctx context.Context, host string, port int, banner string, mak
 			!strings.Contains(bodyLow, "datacenter")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "consul",
+		"url": fmt.Sprintf("http://%s:%d/v1/catalog/nodes", host, port)}
+	// Extract Consul version from /v1/agent/self (already unauthenticated if ACLs are off).
+	if selfBody, selfOK := probeHTTPBody(ctx, host, port, false, "/v1/agent/self"); selfOK {
+		if ver := parseJSONStringField(selfBody, "Version"); ver != "" {
+			ev["version"] = ver
+		} else if ver := parseJSONStringField(selfBody, "version"); ver != "" {
+			ev["version"] = ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortConsulNoACL,
 		finding.SeverityHigh,
@@ -390,14 +454,18 @@ func detectConsul(ctx context.Context, host string, port int, banner string, mak
 			"TLS certificates, and database credentials). An attacker can also register malicious "+
 			"services to redirect internal traffic. Enable Consul ACLs "+
 			"(acl { enabled = true }) and restrict the HTTP port to trusted networks.",
-		map[string]any{"port": port, "service": "consul",
-			"url": fmt.Sprintf("http://%s:%d/v1/catalog/nodes", host, port)},
+		ev,
 	)}
 }
 
 func detectEtcd(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Detect etcd by HTTP response content — /version returns etcd version info.
 	if body, ok := probeHTTPBody(ctx, host, port, false, "/version"); ok && strings.Contains(strings.ToLower(body), "etcd") {
+		ev := map[string]any{"port": port, "service": "etcd"}
+		if ver := parseJSONStringField(body, "etcdserver"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "etcd " + ver
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortEtcdExposed,
 			finding.SeverityCritical,
@@ -407,18 +475,23 @@ func detectEtcd(ctx context.Context, host string, port int, banner string, makeF
 				"Unauthenticated etcd access gives full read/write to the key-value store "+
 				"and their network endpoints, and the key-value store (which often contains secrets, "+
 				"TLS certificates, and database credentials).",
-			map[string]any{"port": port, "service": "etcd"},
+			ev,
 		)}
 	}
 	// Also try HTTPS — etcd may be configured with TLS.
 	if body, ok := probeHTTPBody(ctx, host, port, true, "/version"); ok && strings.Contains(strings.ToLower(body), "etcd") {
+		ev := map[string]any{"port": port, "service": "etcd"}
+		if ver := parseJSONStringField(body, "etcdserver"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "etcd " + ver
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortEtcdExposed,
 			finding.SeverityCritical,
 			fmt.Sprintf("etcd client API exposed on port %d", port),
 			"An etcd cluster member is publicly accessible via TLS. etcd stores all Kubernetes cluster "+
 				"state including secrets, service account tokens, and cluster configuration.",
-			map[string]any{"port": port, "service": "etcd"},
+			ev,
 		)}
 	}
 	// Fall back to port-based for well-known etcd ports when HTTP probes fail.
@@ -453,6 +526,27 @@ func detectWebmin(ctx context.Context, host string, port int, banner string, mak
 	if !strings.Contains(bodyLow, "webmin") && !strings.Contains(bodyLow, "session_login") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "webmin", "banner": banner}
+	// Extract Webmin version from page title (e.g. "Login to Webmin" page may contain version)
+	// or from body text like "Webmin 2.105".
+	for _, prefix := range []string{"webmin ", "webmin/"} {
+		if idx := strings.Index(bodyLow, prefix); idx >= 0 {
+			after := body[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Webmin " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortWebminExposed,
 		finding.SeverityHigh,
@@ -460,7 +554,7 @@ func detectWebmin(ctx context.Context, host string, port int, banner string, mak
 		"Webmin is publicly accessible. Webmin provides web-based Unix/Linux system administration "+
 			"and has a history of critical vulnerabilities. CVE-2019-15107 allowed unauthenticated RCE "+
 			"and CVE-2022-0824 allowed unauthenticated file read. Restrict to trusted networks.",
-		map[string]any{"port": port, "service": "webmin", "banner": banner},
+		ev,
 	)}
 }
 
@@ -474,6 +568,12 @@ func detectNetdata(ctx context.Context, host string, port int, banner string, ma
 		!strings.Contains(bodyLow, "os_name")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "netdata",
+		"url": fmt.Sprintf("http://%s:%d", host, port)}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Netdata " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNetdataExposed,
 		finding.SeverityMedium,
@@ -484,8 +584,7 @@ func detectNetdata(ctx context.Context, host string, port int, banner string, ma
 			"reconnaissance for targeted attacks. Older Netdata versions allow unauthenticated "+
 			"dashboard access by default. Enable Netdata Cloud authentication or place Netdata "+
 			"behind an authenticated reverse proxy restricted to monitoring networks.",
-		map[string]any{"port": port, "service": "netdata",
-			"url": fmt.Sprintf("http://%s:%d", host, port)},
+		ev,
 	)}
 }
 
@@ -507,6 +606,15 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 					map[string]any{"port": port, "service": "artifactory", "creds": "admin:password", "authenticated": true},
 				)}
 			}
+			artEv := map[string]any{"port": port, "service": "artifactory",
+				"url": fmt.Sprintf("http://%s:%d/artifactory/", host, port)}
+			// Extract Artifactory version from /artifactory/api/system/version (already public).
+			if verBody, verOK := probeHTTPBody(ctx, host, port, false, "/artifactory/api/system/version"); verOK {
+				if ver := parseJSONStringField(verBody, "version"); ver != "" {
+					artEv["version"] = ver
+					artEv["product"] = "JFrog Artifactory " + ver
+				}
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortArtifactoryExposed,
 				finding.SeverityHigh,
@@ -516,8 +624,7 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 					"Unauthenticated access or default credentials allow supply chain compromise by "+
 					"injecting malicious artifacts into repositories used by development pipelines. "+
 					"Restrict access to trusted networks and rotate all repository credentials.",
-				map[string]any{"port": port, "service": "artifactory",
-					"url": fmt.Sprintf("http://%s:%d/artifactory/", host, port)},
+				artEv,
 			)}
 		}
 	}
@@ -525,6 +632,12 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 	if body, ok := probeHTTPBody(ctx, host, port, false, "/service/rest/v1/status"); ok {
 		bodyLow := strings.ToLower(body)
 		if strings.Contains(bodyLow, "nexus") || strings.Contains(bodyLow, "sonatype") {
+			nexusEv := map[string]any{"port": port, "service": "nexus",
+				"url": fmt.Sprintf("http://%s:%d/", host, port)}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				nexusEv["version"] = ver
+				nexusEv["product"] = "Sonatype Nexus " + ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortNexusExposed,
 				finding.SeverityHigh,
@@ -534,8 +647,7 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 					"Older Nexus versions use default credentials (admin:admin123) and may be vulnerable to "+
 					"CVE-2019-7238 (Nexus 3 < 3.15.0 pre-auth RCE via EL injection, CVSS 9.8, KEV). "+
 					"Restrict to trusted networks and update to the latest version.",
-				map[string]any{"port": port, "service": "nexus",
-					"url": fmt.Sprintf("http://%s:%d/", host, port)},
+				nexusEv,
 			)}
 		}
 	}
@@ -578,6 +690,8 @@ func detectWebLogic(ctx context.Context, host string, port int, banner string, m
 	// Try to extract version from the console login page.
 	if ver := parseWebLogicVersion(body); ver != "" {
 		ev["weblogic_version"] = ver
+		ev["version"] = ver
+		ev["product"] = "Oracle WebLogic " + ver
 		// CVE-2020-14882/14883 affects WebLogic < 14.1.1.0.0 and < 12.2.1.4.0
 		// (with Oct 2020 CPU patch). Conservatively: anything < 14.1.1.1 or < 12.2.1.5.
 		vulnerable := versionBefore(ver, "14.1.1.1") // covers 12.x, 10.x, etc.
@@ -656,6 +770,8 @@ func detectSaltAPI(ctx context.Context, host string, port int, banner string, ma
 	// Try to extract Salt version from the API response.
 	if ver := parseSaltVersion(body); ver != "" {
 		ev["salt_version"] = ver
+		ev["version"] = ver
+		ev["product"] = "SaltStack " + ver
 		// CVE-2021-25281/25282 affects Salt < 3002.5, < 3001.6, < 3000.8.
 		// Simplified: anything < 3002.5 is vulnerable.
 		if versionBefore(ver, "3002.5") {
@@ -690,6 +806,15 @@ func detectVLLM(ctx context.Context, host string, port int, banner string, makeF
 		!strings.Contains(bodyLow, "data") || !strings.Contains(bodyLow, "model")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "vllm",
+		"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)}
+	// Try /version endpoint for vLLM version (returns {"version":"0.4.2"}).
+	if verBody, verOK := probeHTTPBody(ctx, host, port, false, "/version"); verOK {
+		if ver := parseJSONStringField(verBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "vLLM " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortvLLMExposed,
 		finding.SeverityHigh,
@@ -699,8 +824,7 @@ func detectVLLM(ctx context.Context, host string, port int, banner string, makeF
 			"Unauthenticated access allows unlimited inference at the operator's GPU cost, "+
 			"exposure of fine-tuned model capabilities, and potential prompt injection attacks. "+
 			"Add --api-key to require authentication and restrict to trusted networks.",
-		map[string]any{"port": port, "service": "vllm",
-			"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)},
+		ev,
 	)}
 }
 
@@ -714,6 +838,12 @@ func detectLocalAI(ctx context.Context, host string, port int, banner string, ma
 		!strings.Contains(bodyLow, "go-skynet") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "localai",
+		"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)}
+	if ver := parseJSONStringField(lbody, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "LocalAI " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortLocalAIExposed,
 		finding.SeverityHigh,
@@ -723,8 +853,7 @@ func detectLocalAI(ctx context.Context, host string, port int, banner string, ma
 			"Unauthenticated access allows unlimited inference at the operator's cost, "+
 			"exposure of locally loaded models, and potential arbitrary model file access. "+
 			"Configure authentication and restrict access to trusted networks.",
-		map[string]any{"port": port, "service": "localai",
-			"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)},
+		ev,
 	)}
 }
 
@@ -738,6 +867,12 @@ func detectAdGuardHome(ctx context.Context, host string, port int, banner string
 		!strings.Contains(bodyLow, "version")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "adguard",
+		"url": fmt.Sprintf("http://%s:%d/control/status", host, port)}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "AdGuard Home " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortAdGuardExposed,
 		finding.SeverityHigh,
@@ -749,8 +884,7 @@ func detectAdGuardHome(ctx context.Context, host string, port int, banner string
 			"read DNS query logs, and modify access control lists. "+
 			"Enable authentication in AdGuard Home settings and restrict access to the "+
 			"admin interface to trusted internal addresses only.",
-		map[string]any{"port": port, "service": "adguard",
-			"url": fmt.Sprintf("http://%s:%d/control/status", host, port)},
+		ev,
 	)}
 }
 
@@ -763,6 +897,15 @@ func detectHuggingFaceTGI(ctx context.Context, host string, port int, banner str
 	if !strings.Contains(bodyLow, "model_id") || !strings.Contains(bodyLow, "max_input_length") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "huggingface-tgi",
+		"url": fmt.Sprintf("http://%s:%d/info", host, port)}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "HuggingFace TGI " + ver
+	}
+	if modelID := parseJSONStringField(body, "model_id"); modelID != "" {
+		ev["model_id"] = modelID
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortHuggingFaceTGIExposed,
 		finding.SeverityHigh,
@@ -772,8 +915,7 @@ func detectHuggingFaceTGI(ctx context.Context, host string, port int, banner str
 			"Unauthenticated access allows unlimited LLM inference at the operator's compute cost, "+
 			"model identification for targeted attacks, and potential prompt injection against downstream applications. "+
 			"Add authentication via a reverse proxy and restrict the port to trusted networks.",
-		map[string]any{"port": port, "service": "huggingface-tgi",
-			"url": fmt.Sprintf("http://%s:%d/info", host, port)},
+		ev,
 	)}
 }
 
@@ -788,6 +930,8 @@ func detectMLflow(ctx context.Context, host string, port int, banner string, mak
 		ver := strings.TrimSpace(verBody)
 		if ver != "" && !strings.ContainsAny(ver, "<>{") {
 			ev["mlflow_version"] = ver
+			ev["version"] = ver
+			ev["product"] = "MLflow " + ver
 		}
 	}
 	findings := []finding.Finding{makeF(
@@ -834,6 +978,27 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 	if !ok || !strings.Contains(strings.ToLower(body), "intel") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "intel-amt"}
+	// Try to extract AMT version from the HTML body (e.g. "Intel(R) Active Management Technology X.Y.Z").
+	bodyLow := strings.ToLower(body)
+	for _, prefix := range []string{"active management technology ", "amt "} {
+		if idx := strings.Index(bodyLow, prefix); idx >= 0 {
+			after := body[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Intel AMT " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	f := makeF(
 		finding.CheckCVEIntelAMTAuthBypass,
 		finding.SeverityCritical,
@@ -845,7 +1010,7 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 			"from the main CPU and OS — providing full KVM, remote console, and power control. "+
 			"A compromised AMT instance survives OS reinstalls and disk wipes. "+
 			"Disable AMT if not needed, update firmware, and block port 16992/16993 at the firewall.",
-		map[string]any{"port": port, "service": "intel-amt"},
+		ev,
 	)
 	// Intel AMT firmware version is rarely extractable from HTTP — confidence is probable.
 	f.Confidence = finding.ConfidenceProbable
@@ -853,9 +1018,33 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 }
 
 func detectViteDev(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	// Vite's /__vite_ping returns a tiny non-HTML response. SPAs return HTML for any path.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/__vite_ping")
-	if !ok || strings.HasPrefix(strings.TrimSpace(body), "<") {
+	// Vite's /__vite_ping returns a tiny non-HTML response. SPAs and generic
+	// web servers return HTML or their default response for any path.
+	// Require a short, specific response — Vite returns empty body or
+	// a very short text response, and also sets specific headers.
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/__vite_ping")
+	if !ok {
+		return nil
+	}
+	trimmed := strings.TrimSpace(body)
+	// Reject HTML, shell scripts, JSON, and long responses.
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "#!") ||
+		strings.HasPrefix(trimmed, "{") || len(trimmed) > 50 {
+		return nil
+	}
+	// Require a positive Vite signal. Vite dev server sets specific headers
+	// or returns an empty body with no Server header. Known non-Vite servers
+	// that return short responses on /__vite_ping (Gitea, Express, etc.)
+	// are rejected by checking for their Server headers.
+	server := strings.ToLower(hdrs.Get("Server"))
+	isViteServer := strings.Contains(server, "vite")
+	isKnownNonVite := server != "" && !isViteServer
+	if isKnownNonVite {
+		return nil
+	}
+	// Without a Server header, require the body to be empty or exactly "pong"
+	// (Vite's actual /__vite_ping response).
+	if !isViteServer && trimmed != "" && trimmed != "pong" {
 		return nil
 	}
 	now := time.Now()
@@ -894,6 +1083,31 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 		})
 	}
 
+	viteEv := map[string]any{"port": port, "service": "vite", "banner": banner}
+	// Try to extract Vite version from the homepage HTML (e.g. "/@vite/client" script src with version).
+	if homeBody, homeOK := probeHTTPBody(ctx, host, port, false, "/"); homeOK {
+		homeLow := strings.ToLower(homeBody)
+		// Vite injects a script like <script type="module" src="/@vite/client"></script>
+		// and the HTML may contain "vite v5.4.1" or similar in comments/meta.
+		for _, prefix := range []string{"vite/", "vite v", "vite@"} {
+			if idx := strings.Index(homeLow, prefix); idx >= 0 {
+				after := homeBody[idx+len(prefix):]
+				ver := ""
+				for _, c := range after {
+					if (c >= '0' && c <= '9') || c == '.' {
+						ver += string(c)
+					} else if ver != "" {
+						break
+					}
+				}
+				if ver != "" && strings.Contains(ver, ".") {
+					viteEv["version"] = strings.TrimRight(ver, ".")
+					viteEv["product"] = "Vite " + strings.TrimRight(ver, ".")
+					break
+				}
+			}
+		}
+	}
 	findings = append(findings, makeF(
 		finding.CheckPortDevServerExposed,
 		finding.SeverityHigh,
@@ -901,7 +1115,7 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 		"A Vite JavaScript development server is publicly accessible. Development servers "+
 			"expose unminified source code, internal file paths, environment variables embedded in code, "+
 			"and the /__vite_ping health endpoint. Production deployments should never expose dev servers.",
-		map[string]any{"port": port, "service": "vite", "banner": banner},
+		viteEv,
 	))
 	return findings
 }
@@ -1230,6 +1444,8 @@ func detectApacheTika(ctx context.Context, host string, port int, banner string,
 		tikaVer = tikaVer[len("apache tika "):]
 	}
 	ev["tika_version"] = tikaVer
+	ev["version"] = tikaVer
+	ev["product"] = "Apache Tika " + tikaVer
 	if isApacheTikaRCEVulnerable(tikaVer) {
 		return []finding.Finding{makeF(
 			finding.CheckCVEApacheTikaRCE,
@@ -1265,6 +1481,17 @@ func detectJaeger(ctx context.Context, host string, port int, banner string, mak
 	if !strings.HasPrefix(trimmed, "{") || !strings.Contains(body, "data") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "jaeger", "banner": banner}
+	// Try to extract Jaeger version from the homepage HTML (Jaeger UI embeds version in body).
+	if homeBody, homeOK := probeHTTPBody(ctx, host, port, false, "/"); homeOK {
+		if ver := parseJSONStringField(homeBody, "gitVersion"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Jaeger " + ver
+		} else if ver := parseJSONStringField(homeBody, "jaegerVersion"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Jaeger " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortJaegerExposed,
 		finding.SeverityHigh,
@@ -1273,7 +1500,7 @@ func detectJaeger(ctx context.Context, host string, port int, banner string, mak
 			"Trace data reveals internal service architecture, request/response payloads, "+
 			"error messages with stack traces, and HTTP headers which may contain auth tokens. "+
 			"Restrict to internal networks and enable authentication.",
-		map[string]any{"port": port, "service": "jaeger", "banner": banner},
+		ev,
 	)}
 }
 
@@ -1285,6 +1512,24 @@ func detectAdminer(ctx context.Context, host string, port int, banner string, ma
 	if !strings.Contains(strings.ToLower(body), "adminer") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "adminer", "banner": banner}
+	// Extract Adminer version from <h1> tag like "Adminer 4.8.1" or title.
+	if idx := strings.Index(strings.ToLower(body), "adminer"); idx >= 0 {
+		rest := body[idx:]
+		after := strings.TrimSpace(rest[len("adminer"):])
+		ver := ""
+		for _, c := range after {
+			if (c >= '0' && c <= '9') || c == '.' {
+				ver += string(c)
+			} else if ver != "" {
+				break
+			}
+		}
+		if ver != "" && strings.Contains(ver, ".") {
+			ev["version"] = strings.TrimRight(ver, ".")
+			ev["product"] = "Adminer " + strings.TrimRight(ver, ".")
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortAdminerExposed,
 		finding.SeverityCritical,
@@ -1293,7 +1538,7 @@ func detectAdminer(ctx context.Context, host string, port int, banner string, ma
 			"It supports MySQL, PostgreSQL, SQLite, MSSQL, Oracle, and other databases. "+
 			"CVE-2021-21311 (Adminer < 4.7.9) allows SSRF to exfiltrate MySQL credentials. "+
 			"Adminer should never be publicly accessible.",
-		map[string]any{"port": port, "service": "adminer", "banner": banner},
+		ev,
 	)}
 }
 
@@ -1420,6 +1665,8 @@ func detectJenkins(ctx context.Context, host string, port int, _ string, makeF f
 	ev := map[string]any{"port": port, "service": "jenkins"}
 	if jenkinsHeader != "" {
 		ev["jenkins_version"] = jenkinsHeader
+		ev["version"] = jenkinsHeader
+		ev["product"] = "Jenkins " + jenkinsHeader
 	}
 
 	// Check if unauthenticated access works — try /api/json which exposes job listing.
@@ -1465,9 +1712,13 @@ func detectWordPress(ctx context.Context, host string, port int, _ string, makeF
 		}
 	}
 	// Fall back to probing wp-login.php directly.
+	// Require HTML response with actual login form elements — JSON APIs
+	// (like npm registries) may contain "wp-login" as a package name.
 	if loginBody, loginOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/wp-login.php"); loginOK {
-		if strings.Contains(strings.ToLower(loginBody), "wordpress") ||
-			strings.Contains(strings.ToLower(loginBody), "wp-login") {
+		loginLow := strings.ToLower(loginBody)
+		isHTML := strings.Contains(loginLow, "<form") || strings.Contains(loginLow, "<html")
+		hasWPForm := strings.Contains(loginLow, "wp-submit") || strings.Contains(loginLow, "loginform")
+		if isHTML && hasWPForm {
 			return wpFinding(host, port, useTLS, makeF)
 		}
 	}
@@ -1475,23 +1726,194 @@ func detectWordPress(ctx context.Context, host string, port int, _ string, makeF
 }
 
 func wpFinding(host string, port int, useTLS bool, makeF findingMaker) []finding.Finding {
-	return []finding.Finding{makeF(
+	ev := map[string]any{
+		"port":    port,
+		"service": "wordpress",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i wp-content", scheme(useTLS), host, port),
+	}
+
+	// Extract WordPress version from generator meta tag on homepage.
+	wpVersion := ""
+	if body, ok := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/"); ok {
+		wpVersion = parseWPVersionFromBody(body)
+	}
+	if wpVersion != "" {
+		ev["version"] = wpVersion
+		ev["product"] = "WordPress " + wpVersion
+	}
+
+	var findings []finding.Finding
+
+	// Check /wp-json/ REST API accessibility.
+	if apiBody, apiOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/wp-json/"); apiOK {
+		apiLow := strings.ToLower(apiBody)
+		if strings.Contains(apiLow, "wp/v2") || strings.Contains(apiLow, "\"namespaces\"") {
+			ev["rest_api_accessible"] = true
+		}
+	}
+
+	// Check /xmlrpc.php accessibility.
+	// WordPress XML-RPC returns "XML-RPC server accepts POST requests only" or
+	// contains "xmlrpc" in a WordPress-specific context. Exclude S3-style XML
+	// error responses that contain the path name in <BucketName>.
+	if xmlBody, xmlOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/xmlrpc.php"); xmlOK {
+		xmlLow := strings.ToLower(xmlBody)
+		isWPXMLRPC := (strings.Contains(xmlLow, "xml-rpc server accepts post requests only") ||
+			strings.Contains(xmlLow, "xml-rpc") && strings.Contains(xmlLow, "wordpress")) &&
+			!strings.Contains(xmlLow, "<bucketname>") // exclude S3 XML errors
+		if isWPXMLRPC {
+			ev["xmlrpc_accessible"] = true
+			findings = append(findings, makeF(
+				finding.CheckPortWordPressXMLRPCExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("WordPress XML-RPC enabled on port %d — brute force and SSRF risk", port),
+				"The WordPress XML-RPC endpoint (/xmlrpc.php) is accessible. XML-RPC enables "+
+					"amplified brute-force attacks (system.multicall), pingback SSRF for internal "+
+					"network scanning, and DDoS amplification. Disable XML-RPC or restrict access.",
+				map[string]any{
+					"port":    port,
+					"service": "wordpress",
+					"proof":   fmt.Sprintf("curl -sk %s://%s:%d/xmlrpc.php", scheme(useTLS), host, port),
+				},
+			))
+		}
+	}
+
+	// Check /wp-login.php accessibility.
+	if loginBody, loginOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/wp-login.php"); loginOK {
+		loginLow := strings.ToLower(loginBody)
+		if strings.Contains(loginLow, "wp-login") || strings.Contains(loginLow, "wordpress") {
+			ev["login_page_accessible"] = true
+		}
+	}
+
+	desc := "A WordPress installation is running. "
+	if wpVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", wpVersion)
+	}
+	desc += "WordPress is the most targeted CMS on the internet. " +
+		"Check for outdated core/plugins/themes, exposed wp-login.php (brute-force target), " +
+		"XML-RPC (/xmlrpc.php), REST API user enumeration (/wp-json/wp/v2/users), and " +
+		"debug.log exposure (/wp-content/debug.log)."
+
+	findings = append(findings, makeF(
 		finding.CheckPortWordPressDetected,
 		finding.SeverityInfo,
 		fmt.Sprintf("WordPress CMS detected on port %d", port),
-		"A WordPress installation is running. WordPress is the most targeted CMS on the internet. "+
-			"Check for outdated core/plugins/themes, exposed wp-login.php (brute-force target), "+
-			"XML-RPC (/xmlrpc.php), REST API user enumeration (/wp-json/wp/v2/users), and "+
-			"debug.log exposure (/wp-content/debug.log).",
-		map[string]any{
-			"port":    port,
-			"service": "wordpress",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i wp-content", scheme(useTLS), host, port),
-		},
-	)}
+		desc,
+		ev,
+	))
+	return findings
+}
+
+// parseWPVersionFromBody extracts the WordPress version from the generator meta tag
+// or from wp-includes version references in the HTML body.
+func parseWPVersionFromBody(body string) string {
+	// Look for <meta name="generator" content="WordPress X.Y.Z" />
+	bodyLow := strings.ToLower(body)
+	if idx := strings.Index(bodyLow, "wordpress"); idx >= 0 {
+		// Find the version number after "WordPress "
+		rest := body[idx:]
+		if wpIdx := strings.Index(strings.ToLower(rest), "wordpress"); wpIdx >= 0 {
+			after := strings.TrimSpace(rest[wpIdx+9:])
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				return strings.TrimRight(ver, ".")
+			}
+		}
+	}
+	// Look for ?ver=X.Y.Z in wp-includes or wp-content references.
+	for _, marker := range []string{"wp-includes", "wp-content"} {
+		if idx := strings.Index(bodyLow, marker); idx >= 0 {
+			rest := body[idx:]
+			if verIdx := strings.Index(rest, "?ver="); verIdx >= 0 && verIdx < 200 {
+				after := rest[verIdx+5:]
+				ver := ""
+				for _, c := range after {
+					if (c >= '0' && c <= '9') || c == '.' {
+						ver += string(c)
+					} else if ver != "" {
+						break
+					}
+				}
+				if ver != "" && strings.Contains(ver, ".") {
+					return strings.TrimRight(ver, ".")
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseGeneratorVersion extracts a version number from a <meta name="generator"> tag
+// whose content starts with the given product name (case-insensitive).
+// Example: <meta name="generator" content="Joomla! 4.3.2" /> → "4.3.2"
+func parseGeneratorVersion(body, product string) string {
+	bodyLow := strings.ToLower(body)
+	productLow := strings.ToLower(product)
+	// Look for generator meta tag containing the product name.
+	genIdx := strings.Index(bodyLow, "generator")
+	if genIdx < 0 {
+		return ""
+	}
+	// Find the product name after the generator tag.
+	rest := bodyLow[genIdx:]
+	pIdx := strings.Index(rest, productLow)
+	if pIdx < 0 {
+		return ""
+	}
+	after := body[genIdx+pIdx+len(product):]
+	// Skip non-digit prefix (e.g. "! " in "Joomla! 4.3.2").
+	ver := ""
+	started := false
+	for _, c := range after {
+		if (c >= '0' && c <= '9') || c == '.' {
+			ver += string(c)
+			started = true
+		} else if started {
+			break
+		}
+		// Stop scanning if we hit tag boundary.
+		if c == '"' || c == '<' || c == '>' {
+			break
+		}
+	}
+	if ver != "" && strings.Contains(ver, ".") {
+		return strings.TrimRight(ver, ".")
+	}
+	return ""
+}
+
+// parseXMLVersion extracts version from a <version>X.Y.Z</version> XML tag.
+func parseXMLVersion(body string) string {
+	bodyLow := strings.ToLower(body)
+	const tag = "<version>"
+	const endTag = "</version>"
+	idx := strings.Index(bodyLow, tag)
+	if idx < 0 {
+		return ""
+	}
+	rest := body[idx+len(tag):]
+	end := strings.Index(strings.ToLower(rest), endTag)
+	if end < 0 || end > 30 {
+		return ""
+	}
+	ver := strings.TrimSpace(rest[:end])
+	if strings.Contains(ver, ".") {
+		return ver
+	}
+	return ""
 }
 
 // detectDrupal identifies Drupal via X-Drupal-Cache header, Drupal.settings in body, or drupal.js.
+// Enhanced: extracts version from CHANGELOG.txt, X-Generator header, and checks /core/install.php.
 func detectDrupal(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
 	useTLS := port == 443
 	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
@@ -1519,15 +1941,88 @@ func detectDrupal(ctx context.Context, host string, port int, _ string, makeF fi
 	if xGen != "" {
 		ev["x_generator"] = xGen
 	}
+
+	// Extract Drupal version from X-Generator header (e.g. "Drupal 10 (https://www.drupal.org)").
+	drupalVersion := ""
+	if xGen != "" {
+		xgl := strings.ToLower(xGen)
+		if idx := strings.Index(xgl, "drupal"); idx >= 0 {
+			rest := strings.TrimSpace(xGen[idx+6:])
+			if spIdx := strings.IndexAny(rest, " ("); spIdx > 0 {
+				drupalVersion = strings.TrimSpace(rest[:spIdx])
+			} else if rest != "" {
+				drupalVersion = rest
+			}
+		}
+	}
+
+	// Try CHANGELOG.txt for exact version (Drupal 7 and older).
+	if drupalVersion == "" {
+		if clBody, clOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/CHANGELOG.txt"); clOK {
+			drupalVersion = parseDrupalChangelog(clBody)
+		}
+	}
+
+	// Try /core/install.php accessibility (Drupal 8+).
+	installAccessible := false
+	if instBody, instOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/core/install.php"); instOK {
+		if strings.Contains(strings.ToLower(instBody), "drupal") {
+			installAccessible = true
+			ev["install_php_accessible"] = true
+		}
+	}
+
+	if drupalVersion != "" {
+		ev["version"] = drupalVersion
+		ev["product"] = "Drupal " + drupalVersion
+	}
+
+	desc := "A Drupal installation is running. "
+	if drupalVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", drupalVersion)
+	}
+	if installAccessible {
+		desc += "The installer at /core/install.php is publicly accessible, which may allow reinstallation. "
+	}
+	desc += "Drupal has a history of critical RCE vulnerabilities " +
+		"(Drupalgeddon SA-CORE-2014-005, Drupalgeddon2 CVE-2018-7600/7602). " +
+		"Verify Drupal core and contributed modules are fully patched."
+
 	return []finding.Finding{makeF(
 		finding.CheckPortDrupalDetected,
 		finding.SeverityInfo,
 		fmt.Sprintf("Drupal CMS detected on port %d", port),
-		"A Drupal installation is running. Drupal has a history of critical RCE vulnerabilities "+
-			"(Drupalgeddon SA-CORE-2014-005, Drupalgeddon2 CVE-2018-7600/7602). "+
-			"Verify Drupal core and contributed modules are fully patched.",
+		desc,
 		ev,
 	)}
+}
+
+// parseDrupalChangelog extracts the version from a Drupal CHANGELOG.txt file.
+// Looks for patterns like "Drupal 7.95" or "Drupal 10.2.5" in the first few lines.
+func parseDrupalChangelog(body string) string {
+	lines := strings.Split(body, "\n")
+	for _, line := range lines {
+		if len(lines) > 20 {
+			break
+		}
+		ll := strings.ToLower(line)
+		if idx := strings.Index(ll, "drupal"); idx >= 0 {
+			rest := strings.TrimSpace(line[idx+6:])
+			// Extract version number (digits and dots).
+			ver := ""
+			for _, c := range rest {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				return strings.TrimRight(ver, ".")
+			}
+		}
+	}
+	return ""
 }
 
 // detectJoomla identifies Joomla via /administrator/ or /media/jui/ references in the homepage.
@@ -1554,6 +2049,23 @@ func detectJoomla(ctx context.Context, host string, port int, _ string, makeF fi
 	if !isJoomla {
 		return nil
 	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "joomla",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/administrator/", scheme(useTLS), host, port),
+	}
+	// Extract Joomla version from <meta name="generator" content="Joomla! X.Y.Z" />
+	// in the already-fetched homepage body.
+	if ver := parseGeneratorVersion(body, "joomla"); ver != "" {
+		ev["version"] = ver
+	} else {
+		// Try /administrator/manifests/files/joomla.xml which contains <version>X.Y.Z</version>.
+		if xmlBody, xmlOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/administrator/manifests/files/joomla.xml"); xmlOK {
+			if v := parseXMLVersion(xmlBody); v != "" {
+				ev["version"] = v
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortJoomlaDetected,
 		finding.SeverityInfo,
@@ -1561,11 +2073,7 @@ func detectJoomla(ctx context.Context, host string, port int, _ string, makeF fi
 		"A Joomla installation is running. Check for outdated core/extensions and exposed "+
 			"/administrator/ login. CVE-2015-8562 (PHP object injection via User-Agent) and "+
 			"CVE-2023-23752 (unauthenticated info disclosure) are common Joomla attack vectors.",
-		map[string]any{
-			"port":    port,
-			"service": "joomla",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/administrator/", scheme(useTLS), host, port),
-		},
+		ev,
 	)}
 }
 
@@ -1577,15 +2085,18 @@ func detectGhost(ctx context.Context, host string, port int, _ string, makeF fin
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
-	isGhost := strings.Contains(bodyLow, "ghost-") ||
-		strings.Contains(bodyLow, "content=\"ghost") ||
-		strings.Contains(bodyLow, "ghost.org")
+	// Require stronger Ghost CMS fingerprints to avoid false positives on
+	// pages that happen to contain "ghost-" in CSS class names.
+	isGhost := strings.Contains(bodyLow, "content=\"ghost") ||
+		strings.Contains(bodyLow, "ghost.org") ||
+		strings.Contains(bodyLow, "ghost-signup") ||
+		strings.Contains(bodyLow, "ghost-portal")
 
 	if !isGhost {
-		// Try the Ghost API endpoint.
+		// Try the Ghost API endpoint — require Ghost-specific JSON structure.
 		if apiBody, apiOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/ghost/api/v4/admin/site/"); apiOK {
-			if strings.Contains(strings.ToLower(apiBody), "ghost") ||
-				strings.Contains(apiBody, "\"title\"") {
+			apiLow := strings.ToLower(apiBody)
+			if strings.Contains(apiLow, "\"ghost\"") && strings.Contains(apiLow, "\"site\"") {
 				isGhost = true
 			}
 		}
@@ -1593,17 +2104,23 @@ func detectGhost(ctx context.Context, host string, port int, _ string, makeF fin
 	if !isGhost {
 		return nil
 	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "ghost",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i ghost", scheme(useTLS), host, port),
+	}
+	// Extract Ghost version from meta generator tag or API response body.
+	if ver := parseGhostVersion(body); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Ghost " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortGhostDetected,
 		finding.SeverityInfo,
 		fmt.Sprintf("Ghost CMS detected on port %d", port),
 		"A Ghost publishing platform is running. Verify the Ghost admin panel (/ghost/) is "+
 			"not publicly accessible without authentication and that the Ghost version is current.",
-		map[string]any{
-			"port":    port,
-			"service": "ghost",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i ghost", scheme(useTLS), host, port),
-		},
+		ev,
 	)}
 }
 
@@ -1625,6 +2142,7 @@ func detectNextcloud(ctx context.Context, host string, port int, _ string, makeF
 	}
 	if ver := parseJSONStringField(body, "versionstring"); ver != "" {
 		ev["nextcloud_version"] = ver
+		ev["version"] = ver
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNextcloudDetected,
@@ -1654,6 +2172,13 @@ func detectSpringBoot(ctx context.Context, host string, port int, _ string, make
 		"port":    port,
 		"service": "spring-boot-actuator",
 		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/actuator", scheme(useTLS), host, port),
+	}
+
+	// Extract Spring Boot version from /actuator/info if available.
+	if infoBody, infoOK := probeHTTPBody(ctx, host, port, useTLS, "/actuator/info"); infoOK {
+		if ver := parseJSONStringField(infoBody, "version"); ver != "" {
+			ev["version"] = ver
+		}
 	}
 
 	// Check which sensitive endpoints are exposed.
@@ -1695,6 +2220,29 @@ func detectDjango(ctx context.Context, host string, port int, _ string, makeF fi
 		// Django debug mode shows a distinctive page.
 		if strings.Contains(bodyLow, "you're seeing this message because") &&
 			strings.Contains(bodyLow, "django") {
+			ev := map[string]any{
+				"port":       port,
+				"service":    "django",
+				"debug_mode": true,
+				"proof":      fmt.Sprintf("curl -sk %s://%s:%d/", scheme(useTLS), host, port),
+			}
+			// Extract Django version from debug page text like "Django Version: 4.2.1"
+			if idx := strings.Index(bodyLow, "django version"); idx >= 0 {
+				after := body[idx:]
+				ver := ""
+				inVer := false
+				for _, c := range after {
+					if (c >= '0' && c <= '9') || c == '.' {
+						ver += string(c)
+						inVer = true
+					} else if inVer {
+						break
+					}
+				}
+				if ver != "" && strings.Contains(ver, ".") {
+					ev["version"] = strings.TrimRight(ver, ".")
+				}
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortDjangoDetected,
 				finding.SeverityMedium,
@@ -1702,12 +2250,7 @@ func detectDjango(ctx context.Context, host string, port int, _ string, makeF fi
 				"Django is running with DEBUG=True, exposing detailed error pages with settings, "+
 					"installed apps, middleware, URL patterns, and database configuration to any visitor. "+
 					"Set DEBUG=False in production immediately.",
-				map[string]any{
-					"port":       port,
-					"service":    "django",
-					"debug_mode": true,
-					"proof":      fmt.Sprintf("curl -sk %s://%s:%d/", scheme(useTLS), host, port),
-				},
+				ev,
 			)}
 		}
 	}
@@ -1815,6 +2358,8 @@ func detectASPNET(ctx context.Context, host string, port int, _ string, makeF fi
 	if ver := hdrs.Get("X-AspNet-Version"); ver != "" {
 		isASPNET = true
 		ev["aspnet_version"] = ver
+		ev["version"] = ver
+		ev["product"] = "ASP.NET " + ver
 	}
 	if pw := hdrs.Get("X-Powered-By"); strings.Contains(strings.ToLower(pw), "asp.net") {
 		isASPNET = true
@@ -1905,6 +2450,10 @@ func detectFastAPI(ctx context.Context, host string, port int, _ string, makeF f
 			if title := parseJSONStringField(body, "title"); title != "" {
 				ev["api_title"] = title
 			}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				ev["version"] = ver
+				ev["product"] = "FastAPI " + ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortFastAPIDetected,
 				finding.SeverityInfo,
@@ -1947,6 +2496,269 @@ func scheme(useTLS bool) string {
 	return "http"
 }
 
+// detectMagento identifies Magento ecommerce platform via body content, headers, and known endpoints.
+func detectMagento(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	bodyLow := strings.ToLower(body)
+	xMagentoVary := hdrs.Get("X-Magento-Vary")
+	xMagentoCache := hdrs.Get("X-Magento-Cache-Control")
+	isMagento := xMagentoVary != "" || xMagentoCache != "" ||
+		strings.Contains(bodyLow, "mage.cookies") ||
+		strings.Contains(bodyLow, "x-magento-") ||
+		strings.Contains(bodyLow, "/static/version")
+
+	if !isMagento {
+		return nil
+	}
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "magento",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i magento", scheme(useTLS), host, port),
+	}
+
+	// Try /magento_version endpoint for exact version.
+	if verBody, verOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/magento_version"); verOK {
+		ver := strings.TrimSpace(verBody)
+		if len(ver) > 0 && len(ver) < 50 && !strings.Contains(strings.ToLower(ver), "<") {
+			ev["version"] = ver
+			ev["product"] = "Magento " + ver
+		}
+	}
+
+	// Check for admin panel at common paths.
+	for _, adminPath := range []string{"/admin", "/backend"} {
+		if adminBody, adminOK := probeHTTPAnyBody(ctx, host, port, useTLS, adminPath); adminOK {
+			adminLow := strings.ToLower(adminBody)
+			if strings.Contains(adminLow, "magento") || strings.Contains(adminLow, "login") {
+				ev["admin_panel_path"] = adminPath
+				ev["admin_panel_accessible"] = true
+				break
+			}
+		}
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckPortMagentoDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Magento ecommerce platform detected on port %d", port),
+		"A Magento installation is running. Magento handles payment card data and has had "+
+			"critical vulnerabilities including Magecart skimming attacks, Shoplift bug "+
+			"(CVE-2015-1397), and various RCE flaws. Verify the installation is fully patched "+
+			"and the admin panel is not publicly accessible.",
+		ev,
+	)}
+}
+
+// detectConfluence identifies Atlassian Confluence via /status endpoint, login page, and headers.
+func detectConfluence(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "confluence",
+	}
+	confluenceVersion := ""
+	isConfluence := false
+
+	// Check /status endpoint — returns JSON with {"state":"RUNNING","buildInfo":{"version":"..."}}.
+	if statusBody, statusOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/status"); statusOK {
+		statusLow := strings.ToLower(statusBody)
+		if strings.Contains(statusLow, "confluence") || strings.Contains(statusLow, "\"state\"") {
+			isConfluence = true
+			if ver := parseJSONStringField(statusBody, "version"); ver != "" {
+				confluenceVersion = ver
+			}
+		}
+	}
+
+	// Check login page for Confluence branding.
+	if !isConfluence {
+		if loginBody, loginOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/login.action"); loginOK {
+			loginLow := strings.ToLower(loginBody)
+			if strings.Contains(loginLow, "confluence") || strings.Contains(loginLow, "atlassian") {
+				isConfluence = true
+				// Try to extract version from login page footer.
+				if ver := parseConfluenceVersionFromPage(loginBody); ver != "" && confluenceVersion == "" {
+					confluenceVersion = ver
+				}
+			}
+		}
+	}
+
+	// Check root page for Confluence indicators.
+	if !isConfluence {
+		if rootBody, _, rootOK := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/"); rootOK {
+			rootLow := strings.ToLower(rootBody)
+			if strings.Contains(rootLow, "confluence") || strings.Contains(rootLow, "atlassian-token") {
+				isConfluence = true
+			}
+		}
+	}
+
+	if !isConfluence {
+		return nil
+	}
+
+	if confluenceVersion != "" {
+		ev["version"] = confluenceVersion
+		ev["product"] = "Confluence " + confluenceVersion
+	}
+
+	// Check /rest/api/space for unauthenticated access.
+	if spaceBody, spaceOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/rest/api/space"); spaceOK {
+		spaceLow := strings.ToLower(spaceBody)
+		if strings.Contains(spaceLow, "\"results\"") || strings.Contains(spaceLow, "\"key\"") {
+			ev["unauth_api_access"] = true
+			ev["spaces_accessible"] = true
+		}
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sk %s://%s:%d/status", scheme(useTLS), host, port)
+
+	desc := "An Atlassian Confluence instance is running. "
+	if confluenceVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", confluenceVersion)
+	}
+	desc += "Confluence has had critical RCE vulnerabilities including CVE-2022-26134 (OGNL injection), " +
+		"CVE-2023-22515 (broken access control), and CVE-2023-22527 (template injection). " +
+		"Verify the instance is fully patched and restrict access."
+
+	return []finding.Finding{makeF(
+		finding.CheckPortConfluenceDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Atlassian Confluence detected on port %d", port),
+		desc,
+		ev,
+	)}
+}
+
+// parseConfluenceVersionFromPage extracts version from Confluence login/page HTML.
+func parseConfluenceVersionFromPage(body string) string {
+	bodyLow := strings.ToLower(body)
+	idx := strings.Index(bodyLow, "confluence")
+	for idx >= 0 && idx < len(body)-20 {
+		after := strings.TrimSpace(body[idx+10:])
+		ver := ""
+		for _, c := range after {
+			if (c >= '0' && c <= '9') || c == '.' {
+				ver += string(c)
+			} else if ver != "" {
+				break
+			}
+		}
+		if ver != "" && strings.Contains(ver, ".") {
+			return strings.TrimRight(ver, ".")
+		}
+		next := strings.Index(bodyLow[idx+10:], "confluence")
+		if next < 0 {
+			break
+		}
+		idx = idx + 10 + next
+	}
+	return ""
+}
+
+// detectJira identifies Atlassian Jira via /status, /rest/api/2/serverInfo, or dashboard.
+func detectJira(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "jira",
+	}
+	jiraVersion := ""
+	isJira := false
+
+	// Check /status endpoint.
+	if statusBody, statusOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/status"); statusOK {
+		statusLow := strings.ToLower(statusBody)
+		if strings.Contains(statusLow, "jira") || strings.Contains(statusLow, "\"state\"") {
+			isJira = true
+		}
+	}
+
+	// Check /rest/api/2/serverInfo — exposes version and metadata.
+	if infoBody, infoOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/rest/api/2/serverInfo"); infoOK {
+		infoLow := strings.ToLower(infoBody)
+		if strings.Contains(infoLow, "\"version\"") || strings.Contains(infoLow, "jira") {
+			isJira = true
+			if ver := parseJSONStringField(infoBody, "version"); ver != "" {
+				jiraVersion = ver
+			}
+			ev["unauth_api_access"] = true
+		}
+	}
+
+	// Check dashboard.
+	if !isJira {
+		if dashBody, dashOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/secure/Dashboard.jspa"); dashOK {
+			dashLow := strings.ToLower(dashBody)
+			if strings.Contains(dashLow, "jira") || strings.Contains(dashLow, "atlassian") {
+				isJira = true
+			}
+		}
+	}
+
+	// Check root page.
+	if !isJira {
+		if rootBody, _, rootOK := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/"); rootOK {
+			rootLow := strings.ToLower(rootBody)
+			if strings.Contains(rootLow, "jira") && strings.Contains(rootLow, "atlassian") {
+				isJira = true
+			}
+		}
+	}
+
+	if !isJira {
+		return nil
+	}
+
+	if jiraVersion != "" {
+		ev["version"] = jiraVersion
+		ev["product"] = "Jira " + jiraVersion
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sk %s://%s:%d/rest/api/2/serverInfo", scheme(useTLS), host, port)
+
+	var findings []finding.Finding
+
+	if unauthAPI, _ := ev["unauth_api_access"].(bool); unauthAPI {
+		findings = append(findings, makeF(
+			finding.CheckPortJiraUnauthAPI,
+			finding.SeverityHigh,
+			fmt.Sprintf("Jira REST API accessible without authentication on port %d", port),
+			"The Jira REST API (/rest/api/2/serverInfo) is accessible without authentication. "+
+				"This may expose project data, issue details, user information, and internal metadata. "+
+				"Configure Jira to require authentication for all API endpoints and restrict "+
+				"anonymous access in Global Permissions.",
+			ev,
+		))
+	}
+
+	desc := "An Atlassian Jira instance is running. "
+	if jiraVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", jiraVersion)
+	}
+	desc += "Jira has had critical vulnerabilities including CVE-2019-11581 (SSTI RCE), " +
+		"CVE-2021-26086 (path traversal), and CVE-2022-0540 (auth bypass). " +
+		"Verify the instance is fully patched and restrict public access."
+
+	findings = append(findings, makeF(
+		finding.CheckPortJiraDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Atlassian Jira detected on port %d", port),
+		desc,
+		ev,
+	))
+	return findings
+}
+
 // isGoAnywhereVulnerable returns true for GoAnywhere MFT versions < 7.1.2.
 func isGoAnywhereVulnerable(ver string) bool {
 	parts := strings.Split(ver, ".")
@@ -1968,3 +2780,124 @@ func isGoAnywhereVulnerable(ver string) bool {
 	}
 	return false
 }
+
+// ── Docker Registry v2 ─────────────────────────────────────────────────
+
+func detectDockerRegistry(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Docker Registry v2 API: GET /v2/ returns {"repositories": ...} or empty JSON.
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/v2/")
+	if !ok {
+		return nil
+	}
+	// Registry returns Docker-Distribution-Api-Version header.
+	apiVer := hdrs.Get("Docker-Distribution-Api-Version")
+	bodyLow := strings.ToLower(body)
+	if apiVer == "" && !strings.Contains(bodyLow, "docker") && !strings.Contains(bodyLow, "registry") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "docker-registry", "api_version": apiVer}
+
+	// Try to list repositories via catalog.
+	if catBody, catOK := probeHTTPBody(ctx, host, port, false, "/v2/_catalog"); catOK {
+		if strings.Contains(catBody, "repositories") {
+			ev["catalog_accessible"] = true
+		}
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckContainerRegistryExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Docker Registry v2 API exposed on port %d", port),
+		"A Docker container registry is publicly accessible without authentication. "+
+			"An attacker can list all repositories via /v2/_catalog, pull any image "+
+			"(including those containing source code, secrets, and credentials), and "+
+			"potentially push malicious images if write access is enabled.",
+		ev,
+	)}
+}
+
+// ── Traefik Dashboard ───────────────────────────────────────────────────
+
+func detectTraefikDashboard(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Traefik API returns JSON with version info at /api/version.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/api/version")
+	if !ok {
+		return nil
+	}
+	ver := parseJSONStringField(body, "Version")
+	if ver == "" {
+		// Also check /api/rawdata for Traefik v2.
+		body, ok = probeHTTPBody(ctx, host, port, false, "/api/overview")
+		if !ok || !strings.Contains(strings.ToLower(body), "http") {
+			return nil
+		}
+	}
+
+	ev := map[string]any{"port": port, "service": "traefik"}
+	if ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Traefik " + ver
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckExposureMonitoringPanel,
+		finding.SeverityHigh,
+		fmt.Sprintf("Traefik dashboard/API exposed on port %d", port),
+		"The Traefik reverse proxy dashboard and API are publicly accessible without "+
+			"authentication. An attacker can enumerate all backend services, routes, "+
+			"middleware configurations, and TLS certificates. The API may also allow "+
+			"dynamic configuration changes to reroute traffic.",
+		ev,
+	)}
+}
+
+// ── Vault unsealed / dev mode ───────────────────────────────────────────
+
+func detectVaultUnsealed(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Vault /v1/sys/health returns seal status without auth.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/v1/sys/health")
+	if !ok {
+		// Try HTTPS.
+		body, ok = probeHTTPBody(ctx, host, port, true, "/v1/sys/health")
+		if !ok {
+			return nil
+		}
+	}
+	if !strings.Contains(body, "sealed") || !strings.Contains(body, "initialized") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "vault"}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Vault " + ver
+	}
+
+	// Parse seal status.
+	sealed := strings.Contains(body, `"sealed":true`)
+	ev["sealed"] = sealed
+
+	if !sealed {
+		return []finding.Finding{makeF(
+			finding.CheckPortVaultUnsealedNoAuth,
+			finding.SeverityCritical,
+			fmt.Sprintf("HashiCorp Vault unsealed and accessible on port %d", port),
+			"Vault is unsealed and its API is publicly accessible. An attacker with a valid "+
+				"token (or if no auth is configured, as in dev mode) can read all secrets, "+
+				"create new tokens, and modify policies. Dev mode uses a well-known root token.",
+			ev,
+		)}
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckPortVaultExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("HashiCorp Vault API exposed on port %d (sealed)", port),
+		"Vault's API is publicly accessible. While currently sealed, an attacker can "+
+			"attempt to unseal it if unseal keys are weak or were leaked. Vault should "+
+			"never be directly internet-accessible.",
+		ev,
+	)}
+}
+

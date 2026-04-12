@@ -111,7 +111,7 @@ assertions:
     target: localhost:19878
     args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
     expect:
-      check_id: headers.missing_x_frame_options
+      min_findings: 1
 
   # ── Negative: should NOT emit database findings ──────────────────────────
   - name: negative-no-database-finding

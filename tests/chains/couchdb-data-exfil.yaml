@@ -33,7 +33,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:9411/_all_dbs | grep -q customers"
-  timeout: 30s
+  timeout: 60s
   interval: 2s
 
 assertions:

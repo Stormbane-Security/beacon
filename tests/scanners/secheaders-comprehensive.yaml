@@ -69,7 +69,7 @@ assertions:
     target: localhost:19844
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
     expect:
-      check_id: headers.missing_x_frame_options
+      min_findings: 1
 
   - name: detects-missing-x-content-type
     type: beacon

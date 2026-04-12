@@ -1,0 +1,95 @@
+name: variant-jenkins-versions
+description: >
+  Jenkins version variant test: 2.440-lts vs 2.450-lts with setup wizard
+  disabled. Verifies that beacon detects unauthenticated Jenkins access
+  across both LTS versions. Jenkins is heavy — uses extended timeout.
+tags: [variant, jenkins, ci, integration]
+
+services:
+  jenkins440:
+    image: jenkins/jenkins:2.440-lts
+    ports: ["20552:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+  jenkins450:
+    image: jenkins/jenkins:2.450-lts
+    ports: ["20553:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+ready:
+  cmd: "curl -sf http://localhost:20552/login >/dev/null && curl -sf http://localhost:20553/login >/dev/null"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # JENKINS 2.440 — unauthenticated access
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: jenkins440-surface-findings
+    type: beacon
+    target: http://localhost:20552
+    args: ["--no-enrich", "--no-nmap"]
+    expect:
+      min_findings: 1
+
+  - name: jenkins440-service-identified
+    type: beacon
+    target: localhost:20552
+    args: ["--no-enrich", "--no-nmap", "--ports", "20552"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-jenkins440-deep-scan
+    type: beacon
+    target: http://localhost:20552
+    args: ["--no-enrich", "--no-nmap", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # JENKINS 2.450 — unauthenticated access
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: jenkins450-surface-findings
+    type: beacon
+    target: http://localhost:20553
+    args: ["--no-enrich", "--no-nmap"]
+    expect:
+      min_findings: 1
+
+  - name: jenkins450-service-identified
+    type: beacon
+    target: localhost:20553
+    args: ["--no-enrich", "--no-nmap", "--ports", "20553"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-jenkins450-deep-scan
+    type: beacon
+    target: http://localhost:20553
+    args: ["--no-enrich", "--no-nmap", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-jenkins440-not-grafana
+    type: beacon
+    target: localhost:20552
+    args: ["--no-enrich", "--no-nmap", "--ports", "20552"]
+    expect:
+      not_check_id: port.grafana_default_credentials
+
+  - name: negative-jenkins450-not-grafana
+    type: beacon
+    target: localhost:20553
+    args: ["--no-enrich", "--no-nmap", "--ports", "20553"]
+    expect:
+      not_check_id: port.grafana_default_credentials
+
+timeout: 10m

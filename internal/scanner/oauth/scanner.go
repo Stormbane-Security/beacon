@@ -861,7 +861,16 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 
 	isRedirect := resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308
 	isRejection := resp.StatusCode == 400 || resp.StatusCode == 401 || resp.StatusCode == 403
-	locMatch := strings.Contains(strings.ToLower(loc), "evil.com")
+
+	// Check if the redirect Location actually points to evil.com as the HOST,
+	// not just "evil.com" appearing in a query parameter (e.g., HTTP→HTTPS
+	// redirects preserve the redirect_uri query param, causing false positives).
+	locMatch := false
+	if loc != "" {
+		if locURL, err := url.Parse(loc); err == nil {
+			locMatch = strings.Contains(strings.ToLower(locURL.Host), "evil.com")
+		}
+	}
 	bodyMatch := strings.Contains(bodyStr, "evil.com")
 
 	if (isRedirect && locMatch) || (resp.StatusCode == 200 && bodyMatch) || (!isRejection && locMatch) {
@@ -925,7 +934,14 @@ func checkSubdomainBypass(ctx context.Context, client *http.Client, asset, authE
 	evilHost := "evil." + asset
 	isRedirect := resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308
 	isRejection := resp.StatusCode == 400 || resp.StatusCode == 401 || resp.StatusCode == 403
-	locMatch := strings.Contains(strings.ToLower(loc), evilHost)
+	// Check if the redirect target HOST is the evil subdomain, not just
+	// the string appearing in a query parameter of an HTTP→HTTPS redirect.
+	locMatch := false
+	if loc != "" {
+		if locURL, err := url.Parse(loc); err == nil {
+			locMatch = strings.Contains(strings.ToLower(locURL.Host), evilHost)
+		}
+	}
 	bodyMatch := strings.Contains(bodyStr, evilHost)
 
 	if (isRedirect && locMatch) || (resp.StatusCode == 200 && bodyMatch) || (!isRejection && locMatch) {

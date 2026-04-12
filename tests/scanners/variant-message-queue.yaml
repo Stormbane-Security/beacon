@@ -1,0 +1,138 @@
+name: variant-message-queue
+description: >
+  Message queue variant test across RabbitMQ (AMQP + management API) and
+  Mosquitto (MQTT). Verifies that beacon detects default credentials and
+  unauthenticated access on both broker types, catching probe bugs where
+  one protocol parser works but another silently fails.
+tags: [variant, rabbitmq, mqtt, messaging, default-creds, integration]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "20430:5672"
+      - "20431:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["20432:1883"]
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    volumes:
+      - ./variant-message-queue/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+ready:
+  cmd: "curl -sf -u guest:guest http://localhost:20431/api/overview >/dev/null && nc -z localhost 20432"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # RABBITMQ — AMQP port + management API default creds
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-rabbitmq-mgmt-accessible
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:20431/api/whoami | grep -q guest"
+      exit_code: 0
+
+  - name: rabbitmq-amqp-exposed
+    type: beacon
+    target: localhost:20430
+    args: ["--no-enrich", "--no-nmap", "--ports", "20430"]
+    expect:
+      check_id: port.amqp_exposed
+
+  - name: rabbitmq-amqp-service-identified
+    type: beacon
+    target: localhost:20430
+    args: ["--no-enrich", "--no-nmap", "--ports", "20430"]
+    expect:
+      check_id: port.service_identified
+
+  - name: rabbitmq-mgmt-exposed
+    type: beacon
+    target: localhost:20431
+    args: ["--no-enrich", "--no-nmap", "--ports", "20431", "--yes"]
+    expect:
+      check_id: port.rabbitmq_mgmt_exposed
+
+  - name: rabbitmq-default-creds
+    type: beacon
+    target: localhost:20431
+    args: ["--no-enrich", "--no-nmap", "--ports", "20431", "--deep", "--yes"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  - name: exploit-rabbitmq-enum-queues
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:20431/api/queues | grep -q '\\['"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-list-connections
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:20431/api/connections | grep -q '\\['"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # MOSQUITTO — MQTT unauthenticated broker
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-mqtt-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 20432"
+      exit_code: 0
+
+  - name: mqtt-exposed
+    type: beacon
+    target: localhost:20432
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
+    expect:
+      min_findings: 0
+
+  - name: mqtt-service-identified
+    type: beacon
+    target: localhost:20432
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-mqtt-deep-scan
+    type: beacon
+    target: localhost:20432
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-rabbitmq-not-mqtt
+    type: beacon
+    target: localhost:20430
+    args: ["--no-enrich", "--no-nmap", "--ports", "20430"]
+    expect:
+      not_min_findings: 0
+
+  - name: negative-mqtt-not-rabbitmq
+    type: beacon
+    target: localhost:20432
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
+    expect:
+      not_check_id: port.rabbitmq_default_creds
+
+  - name: negative-mqtt-not-redis
+    type: beacon
+    target: localhost:20432
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

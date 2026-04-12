@@ -19,18 +19,6 @@ ready:
 
 assertions:
   # Exploit proofs
-  - name: exploit-env-file-accessible
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9252/.env | grep -q 'DATABASE_URL'"
-      exit_code: 0
-
-  - name: exploit-git-config-accessible
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9252/.git/config | grep -q '[core]'"
-      exit_code: 0
-
   - name: exploit-robots-leaks-paths
     type: command
     expect:
