@@ -6177,6 +6177,20 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 	// Check for SAP NetWeaver fingerprint first to avoid false positives.
 	fingerprints := []string{"/irj/portal", "/sap/bc/gui/sap/its/webgui"}
 	isSAP := false
+	// Skip SAP fingerprint check on catch-all servers — their HTML
+	// reflects URL paths in CSS/canonical URLs, causing false matches
+	// on "/sap/bc/" in the body.
+	catchAllReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-sap-catchall-7k2m.nonexistent", nil)
+	if catchAllReq != nil {
+		if catchAllResp, err := client.Do(catchAllReq); err == nil {
+			ct := catchAllResp.Header.Get("Content-Type")
+			_ = catchAllResp.Body.Close()
+			if catchAllResp.StatusCode == 200 && strings.Contains(ct, "text/html") {
+				return nil // catch-all server — skip SAP probe
+			}
+		}
+	}
+
 	for _, fp := range fingerprints {
 		u := base + fp
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
