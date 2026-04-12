@@ -329,6 +329,46 @@ var targets = []sensitiveFile{
 	{path: "/phpinfo.php", title: "PHP info page exposed", severity: finding.SeverityHigh, bodyContains: "phpinfo"},
 	{path: "/info.php", title: "PHP info page exposed", severity: finding.SeverityHigh, bodyContains: "phpinfo"},
 
+	// Source maps — reveal unminified JavaScript source code.
+	{path: "/main.js.map", title: "JavaScript source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\""},
+	{path: "/app.js.map", title: "JavaScript source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\""},
+	{path: "/bundle.js.map", title: "JavaScript source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\""},
+	{path: "/static/js/main.js.map", title: "React source map exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSourceMaps, bodyContains: "\"sources\"", deepOnly: true},
+
+	// Debug / development endpoints
+	{path: "/__debug__/", title: "Debug endpoint exposed", severity: finding.SeverityHigh, deepOnly: true},
+	{path: "/debug/pprof/", title: "Go pprof debug endpoint exposed", severity: finding.SeverityHigh,
+		bodyContains: "pprof", checkID: finding.CheckExposureMonitoringPanel},
+	{path: "/debug/vars", title: "Go expvar debug endpoint exposed", severity: finding.SeverityHigh,
+		bodyContains: "{", checkID: finding.CheckExposureMonitoringPanel},
+	{path: "/_debug/", title: "Debug interface exposed", severity: finding.SeverityHigh, deepOnly: true},
+	{path: "/elmah.axd", title: "ELMAH error log exposed (.NET)", severity: finding.SeverityHigh,
+		bodyContains: "ELMAH", deepOnly: true},
+	{path: "/trace.axd", title: "ASP.NET trace exposed", severity: finding.SeverityHigh, deepOnly: true},
+
+	// GraphQL introspection
+	{path: "/graphql", title: "GraphQL endpoint exposed", severity: finding.SeverityMedium,
+		checkID: finding.CheckExposureAPIDocs},
+
+	// Common backup/staging paths
+	{path: "/backup/", title: "Backup directory listing", severity: finding.SeverityHigh, deepOnly: true},
+	{path: "/old/", title: "Legacy directory listing", severity: finding.SeverityMedium, deepOnly: true},
+	{path: "/test/", title: "Test directory listing", severity: finding.SeverityMedium, deepOnly: true},
+	{path: "/.DS_Store", title: "macOS .DS_Store file exposed", severity: finding.SeverityMedium,
+		checkID: finding.CheckExposureSensitiveFile},
+	{path: "/crossdomain.xml", title: "Flash crossdomain.xml exposed", severity: finding.SeverityMedium,
+		bodyContains: "cross-domain-policy", checkID: finding.CheckExposureSensitiveFile},
+	{path: "/clientaccesspolicy.xml", title: "Silverlight client access policy exposed", severity: finding.SeverityMedium,
+		bodyContains: "access-policy", checkID: finding.CheckExposureSensitiveFile, deepOnly: true},
+
+	// Kubernetes / cloud metadata
+	{path: "/api/v1/namespaces", title: "Kubernetes API exposed (unauthenticated)", severity: finding.SeverityCritical,
+		bodyContains: "items", deepOnly: true},
+
 	// ── CVE-specific endpoint probes (Oct 2025 – Mar 2026 KEV wave) ──────────
 	// HPE OneView — CVE-2025-37164 unauthenticated RCE (CVSS 10.0, KEV-listed).
 	// /rest/version is accessible without authentication and returns a JSON object
