@@ -1378,12 +1378,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	// Safety gate: drop ModeDeep findings that leaked into a surface scan
+	// Safety gate: drop ModeDeep findings that leaked into a surface scan.
 	if scanType == module.ScanSurface {
 		filtered := allFindings[:0]
 		for _, f := range allFindings {
 			if finding.Meta(f.CheckID).Mode == finding.ModeDeep {
-				continue // BUG: deep check emitted during surface scan — drop it
+				continue
 			}
 			filtered = append(filtered, f)
 		}

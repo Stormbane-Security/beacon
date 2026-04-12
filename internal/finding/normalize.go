@@ -136,5 +136,15 @@ func MapNucleiTemplate(templateID string) CheckID {
 	}
 	// Normalize: lowercase, replace spaces with dashes
 	normalized := strings.ToLower(strings.ReplaceAll(templateID, " ", "-"))
-	return "nuclei." + normalized
+	id := CheckID("nuclei." + normalized)
+
+	// Register the dynamic check ID as ModeSurface in the registry so
+	// the ModeDeep safety gate doesn't drop it. Nuclei templates are
+	// explicitly selected per scan mode (surface vs deep), so any finding
+	// produced during a surface scan is surface-safe by definition.
+	// Without this, unmapped IDs default to ModeDeep and get silently dropped.
+	if _, exists := Registry[id]; !exists {
+		Registry[id] = CheckMeta{CheckID: id, DefaultSeverity: SeverityInfo, Mode: ModeSurface}
+	}
+	return id
 }
