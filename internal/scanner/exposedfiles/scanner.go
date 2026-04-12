@@ -360,8 +360,8 @@ var targets = []sensitiveFile{
 	{path: "/test/", title: "Test directory listing", severity: finding.SeverityMedium, deepOnly: true},
 	{path: "/.DS_Store", title: "macOS .DS_Store file exposed", severity: finding.SeverityMedium,
 		checkID: finding.CheckExposureSensitiveFile},
-	{path: "/crossdomain.xml", title: "Flash crossdomain.xml exposed", severity: finding.SeverityMedium,
-		bodyContains: "cross-domain-policy", checkID: finding.CheckExposureSensitiveFile},
+	{path: "/crossdomain.xml", title: "Flash crossdomain.xml with wildcard origin", severity: finding.SeverityLow,
+		bodyContains: "allow-access-from domain=\"*\"", checkID: finding.CheckExposureAPIDocs},
 	{path: "/clientaccesspolicy.xml", title: "Silverlight client access policy exposed", severity: finding.SeverityMedium,
 		bodyContains: "access-policy", checkID: finding.CheckExposureSensitiveFile, deepOnly: true},
 

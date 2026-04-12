@@ -4759,6 +4759,14 @@ func probeGlobalCatalog(ctx context.Context, host string, port int) bool {
 // probeOracleTNS sends a TNS Connect packet and checks for a valid TNS response
 // (Refuse, Resend, Accept, or Redirect). Oracle TNS uses a well-defined header.
 func probeOracleTNS(ctx context.Context, host string, port int) bool {
+	// Oracle TNS typically runs on 1521, 1522, 1525, 2483, 2484, or custom
+	// ports in the 1500-1600 and 2480-2490 ranges. Skip well-known ports
+	// that use TLS (993=IMAPS, 995=POP3S, 443=HTTPS, 8443) whose handshake
+	// response can accidentally match TNS byte patterns.
+	switch port {
+	case 22, 25, 80, 110, 143, 443, 465, 587, 993, 995, 8080, 8443:
+		return false
+	}
 	addr := fmt.Sprintf("%s:%d", host, port)
 	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
 	if err != nil {
