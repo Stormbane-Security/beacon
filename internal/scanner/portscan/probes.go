@@ -7,9 +7,11 @@ import (
 	"net"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
@@ -65,6 +67,55 @@ type ServiceProbe struct {
 // this list for every open port.
 var probeRegistry []ServiceProbe
 
+// Pre-indexed probe slices by category. Built once by initProbeIndexes after
+// all init() registrations complete. Avoids iterating all 274 probes and
+// checking category on every port — instead, runProbes picks the right slice
+// directly.
+var (
+	indexedHTTPProbes     []ServiceProbe
+	indexedProtocolProbes []ServiceProbe
+	indexedBannerProbes   []ServiceProbe
+	indexedTLSProbes      []ServiceProbe
+	// Exploit-free variants for ScanSurface mode — probes whose name ends in
+	// "-exploit" are excluded, avoiding unnecessary checks.
+	indexedHTTPProbesSurface     []ServiceProbe
+	indexedProtocolProbesSurface []ServiceProbe
+	indexedBannerProbesSurface   []ServiceProbe
+	indexedTLSProbesSurface      []ServiceProbe
+	probeIndexOnce               sync.Once
+)
+
+// initProbeIndexes partitions probeRegistry into per-category slices.
+// Called lazily on first use (after all init() registrations).
+func initProbeIndexes() {
+	probeIndexOnce.Do(func() {
+		for _, p := range probeRegistry {
+			switch p.Category {
+			case ProbeCatHTTP:
+				indexedHTTPProbes = append(indexedHTTPProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedHTTPProbesSurface = append(indexedHTTPProbesSurface, p)
+				}
+			case ProbeCatProtocol:
+				indexedProtocolProbes = append(indexedProtocolProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedProtocolProbesSurface = append(indexedProtocolProbesSurface, p)
+				}
+			case ProbeCatBanner:
+				indexedBannerProbes = append(indexedBannerProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedBannerProbesSurface = append(indexedBannerProbesSurface, p)
+				}
+			case ProbeCatTLS:
+				indexedTLSProbes = append(indexedTLSProbes, p)
+				if !strings.HasSuffix(p.Name, "-exploit") {
+					indexedTLSProbesSurface = append(indexedTLSProbesSurface, p)
+				}
+			}
+		}
+	})
+}
+
 // registerProbe adds a probe to the global registry. Called from init()
 // functions in probe implementation files.
 func registerProbe(p ServiceProbe) {
@@ -113,9 +164,22 @@ func isMySQLGreeting(banner string) bool {
 	return b[3] == 0x00 && b[4] == 0x0a
 }
 
+// scanTypeFromContext retrieves the scan type stored by withScanType.
+// Returns ScanSurface if not set.
+func scanTypeFromContext(ctx context.Context) module.ScanType {
+	if st, ok := ctx.Value(scanTypeKey).(module.ScanType); ok {
+		return st
+	}
+	return module.ScanSurface
+}
+
 // runProbes iterates all registered probes against an open port and returns
-// the combined findings. Pre-filters by category to avoid pointless work.
+// the combined findings. Uses pre-indexed category slices to avoid iterating
+// all 274 probes on every port.
 func runProbes(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Ensure category indexes are built (once, after all init() registrations).
+	initProbeIndexes()
+
 	sl := scanlog.FromContext(ctx)
 
 	bannerHTTP := looksLikeHTTP(banner)
@@ -161,42 +225,66 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		ja3s = JA3SFingerprint(ctx, host, port)
 	}
 
-	// Split probes into protocol (run in parallel) and non-protocol (run after).
-	var protocolProbes, otherProbes []ServiceProbe
-	skippedCount := 0
-	for _, probe := range probeRegistry {
-		// Skip TLS probes on non-TLS ports — avoids 5s handshake timeout per probe.
-		if probe.Category == ProbeCatTLS && !portIsTLS {
-			sl.ProbeSkipped(probe.Name, port, "non-TLS port")
-			skippedCount++
-			continue
-		}
-		if hasBanner {
-			if probe.Category == ProbeCatHTTP && !bannerHTTP {
-				sl.ProbeSkipped(probe.Name, port, "non-HTTP banner")
-				skippedCount++
-				continue
-			}
-			if probe.Category == ProbeCatProtocol && bannerHTTP {
-				sl.ProbeSkipped(probe.Name, port, "HTTP banner — skip protocol probe")
-				skippedCount++
-				continue
-			}
-			if probe.Category == ProbeCatProtocol && bannerProto != "" && !strings.Contains(probe.Name, bannerProto) {
-				sl.ProbeSkipped(probe.Name, port, fmt.Sprintf("banner identifies %s — probe name mismatch", bannerProto))
-				skippedCount++
-				continue
-			}
-		}
-		if probe.Category == ProbeCatProtocol {
-			protocolProbes = append(protocolProbes, probe)
-		} else {
-			otherProbes = append(otherProbes, probe)
-		}
+	// Select the right pre-indexed probe slices based on scan type.
+	// ScanSurface uses the exploit-free variants (probes ending in "-exploit"
+	// are excluded at index time), avoiding unnecessary checks.
+	isSurface := scanTypeFromContext(ctx) == module.ScanSurface
+	pickHTTP := indexedHTTPProbes
+	pickProtocol := indexedProtocolProbes
+	pickBanner := indexedBannerProbes
+	pickTLS := indexedTLSProbes
+	if isSurface {
+		pickHTTP = indexedHTTPProbesSurface
+		pickProtocol = indexedProtocolProbesSurface
+		pickBanner = indexedBannerProbesSurface
+		pickTLS = indexedTLSProbesSurface
 	}
+
+	// Build the probe lists from pre-indexed category slices instead of
+	// iterating all 274 probes. Only include categories relevant to what
+	// the banner/quick-check tells us about this port.
+	var selectedProtocol, selectedOther []ServiceProbe
+	skippedCount := 0
+
+	// Protocol probes: skip if banner indicates HTTP.
+	if !hasBanner || !bannerHTTP {
+		if bannerProto != "" {
+			// Banner identified a specific protocol — only run matching probes.
+			for _, p := range pickProtocol {
+				if strings.Contains(p.Name, bannerProto) {
+					selectedProtocol = append(selectedProtocol, p)
+				} else {
+					sl.ProbeSkipped(p.Name, port, fmt.Sprintf("banner identifies %s — probe name mismatch", bannerProto))
+					skippedCount++
+				}
+			}
+		} else {
+			selectedProtocol = pickProtocol
+		}
+	} else {
+		skippedCount += len(pickProtocol)
+	}
+
+	// HTTP probes: skip if banner indicates a non-HTTP protocol.
+	if !hasBanner || bannerHTTP {
+		selectedOther = append(selectedOther, pickHTTP...)
+	} else {
+		skippedCount += len(pickHTTP)
+	}
+
+	// Banner probes always run (they just inspect the passive banner).
+	selectedOther = append(selectedOther, pickBanner...)
+
+	// TLS probes: skip on non-TLS ports.
+	if portIsTLS {
+		selectedOther = append(selectedOther, pickTLS...)
+	} else {
+		skippedCount += len(pickTLS)
+	}
+
 	sl.Debug("probe.filter_summary",
 		"host", host, "port", port,
-		"protocol_probes", len(protocolProbes), "other_probes", len(otherProbes),
+		"protocol_probes", len(selectedProtocol), "other_probes", len(selectedOther),
 		"skipped", skippedCount,
 	)
 
@@ -208,7 +296,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	// so once any probe identifies it, cancel the rest via context.
 	// Limit concurrency to avoid tripping IDS port-scan signatures.
 	const maxProbeParallel = 5
-	if len(protocolProbes) > 0 {
+	if len(selectedProtocol) > 0 {
 		type probeResult struct {
 			probe    ServiceProbe
 			findings []finding.Finding
@@ -216,9 +304,9 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		// Cancel remaining probes once one identifies the service.
 		probeCtx, probeCancel := context.WithCancel(ctx)
 		defer probeCancel()
-		resultCh := make(chan probeResult, len(protocolProbes))
+		resultCh := make(chan probeResult, len(selectedProtocol))
 		sem := make(chan struct{}, maxProbeParallel)
-		for _, p := range protocolProbes {
+		for _, p := range selectedProtocol {
 			go func(probe ServiceProbe) {
 				defer func() {
 					if r := recover(); r != nil {
@@ -240,7 +328,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				resultCh <- probeResult{probe: probe, findings: fs}
 			}(p)
 		}
-		for range protocolProbes {
+		for range selectedProtocol {
 			pr := <-resultCh
 			if len(pr.findings) > 0 {
 				findings = append(findings, pr.findings...)
@@ -297,7 +385,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	if identified {
 		identifiedService = "protocol-probe" // protocol probes already found something
 	}
-	for _, probe := range otherProbes {
+	for _, probe := range selectedOther {
 		// Skip relational DB probes if service was already identified
 		// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB/Redis)
 		if identifiedService != "" && probe.Name == "mysql-postgres-mssql-oracle" {

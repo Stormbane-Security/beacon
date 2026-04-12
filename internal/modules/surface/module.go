@@ -626,6 +626,13 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	sl := scanlog.FromContext(ctx)
 	var wgDiscover sync.WaitGroup
 
+	// Skip subdomain discovery, WHOIS, BGP, AXFR, and passive DNS when the
+	// target is an IP address or localhost — there are no subdomains to discover.
+	skipDiscovery := isIPOrLocalhost(rootDomain)
+	if skipDiscovery {
+		sl.Debug("discovery.skip", "reason", "target is IP or localhost", "target", rootDomain)
+	}
+
 	// Amass active mode performs DNS zone-walking and brute-force queries —
 	// gate it on PermissionConfirmed, not just ScanDeep, since aggressive
 	// enumeration against a target requires explicit authorization.
@@ -661,30 +668,38 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	progress("enumerating subdomains...")
-
-	// ── Improvement 3: Discovery cache ──────────────────────────────────────
-	// Check the subdomain discovery cache before launching scanners. On a cache
-	// hit (within 24h TTL), use cached results immediately and launch discovery
-	// in the background to detect drift (new/removed subdomains).
+	// Discovery cache and wildcard detection are only relevant for domain targets.
 	discoveryCache := scan.NewDiscoveryCache()
 	var cachedAssets []string
 	cacheHit := false
-	if discoveryCache != nil {
-		if cached, ok := discoveryCache.Get(rootDomain); ok {
-			cachedAssets = cached
-			cacheHit = true
-			progress(fmt.Sprintf("cache hit: %d subdomains from previous scan — launching background refresh...", len(cached)))
-		}
-	}
+	wildcardDetected := false
+	var wildcardIP string
 
-	// ── Improvement 5: Wildcard DNS detection (pipeline-level) ──────────────
-	// Detect wildcard DNS early. If detected, brute-force inside the subdomain
-	// scanner is already skipped (it has its own detection), but we log the
-	// warning here for pipeline-level visibility.
-	wildcardDetected, wildcardIP := scan.DetectWildcard(ctx, rootDomain)
-	if wildcardDetected {
-		progress(fmt.Sprintf("wildcard DNS detected for *.%s (resolves to %s) — brute-force results will be filtered", rootDomain, wildcardIP))
+	if skipDiscovery {
+		progress("IP/localhost target — skipping subdomain discovery")
+	} else {
+		progress("enumerating subdomains...")
+
+		// ── Improvement 3: Discovery cache ──────────────────────────────────
+		// Check the subdomain discovery cache before launching scanners. On a
+		// cache hit (within 24h TTL), use cached results immediately and launch
+		// discovery in the background to detect drift (new/removed subdomains).
+		if discoveryCache != nil {
+			if cached, ok := discoveryCache.Get(rootDomain); ok {
+				cachedAssets = cached
+				cacheHit = true
+				progress(fmt.Sprintf("cache hit: %d subdomains from previous scan — launching background refresh...", len(cached)))
+			}
+		}
+
+		// ── Improvement 5: Wildcard DNS detection (pipeline-level) ──────────
+		// Detect wildcard DNS early. If detected, brute-force inside the
+		// subdomain scanner is already skipped (it has its own detection), but
+		// we log the warning here for pipeline-level visibility.
+		wildcardDetected, wildcardIP = scan.DetectWildcard(ctx, rootDomain)
+		if wildcardDetected {
+			progress(fmt.Sprintf("wildcard DNS detected for *.%s (resolves to %s) — brute-force results will be filtered", rootDomain, wildcardIP))
+		}
 	}
 
 	type discoveryBatch struct {
@@ -698,36 +713,39 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// sources feed the scan pipeline while slow sources are still running.
 	batchResults := make(chan discoveryBatch, 4)
 
-	// Source priority 2: Passive DNS (fast, single HTTP call)
-	wgDiscover.Add(1)
-	go func() {
-		defer wgDiscover.Done()
-		discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
-		fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
-		discScanDone("passivedns", fs)
-		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
-	}()
+	if !skipDiscovery {
+		// Source priority 2: Passive DNS (fast, single HTTP call)
+		wgDiscover.Add(1)
+		go func() {
+			defer wgDiscover.Done()
+			discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
+			fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
+			discScanDone("passivedns", fs)
+			batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
+		}()
 
-	// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
-	// TODO: Add recursive subdomain discovery — after initial enumeration,
-	// re-run discovery on each discovered subdomain to find sub-subdomains
-	// (e.g. dev.api.example.com). Gate on ScanDeep to avoid noise in surface mode.
-	wgDiscover.Add(1)
-	go func() {
-		defer wgDiscover.Done()
-		subfinderFlags := "-silent -passive"
-		if isDeepOrAuthorized(subdomainScanType) {
-			subfinderFlags = "-silent" // active: DNS resolution + all sources
-		}
-		discScanStart("subdomain", fmt.Sprintf("crt.sh *.%s  +  subfinder -d %s %s", rootDomain, rootDomain, subfinderFlags))
-		fs, _ := m.subdomainScanner.Run(ctx, rootDomain, subdomainScanType)
-		discScanDone("subdomain", fs)
-		batchResults <- discoveryBatch{findings: fs, source: "subdomain"}
-	}()
+		// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
+		// TODO: Add recursive subdomain discovery — after initial enumeration,
+		// re-run discovery on each discovered subdomain to find sub-subdomains
+		// (e.g. dev.api.example.com). Gate on ScanDeep to avoid noise in surface mode.
+		wgDiscover.Add(1)
+		go func() {
+			defer wgDiscover.Done()
+			subfinderFlags := "-silent -passive"
+			if isDeepOrAuthorized(subdomainScanType) {
+				subfinderFlags = "-silent" // active: DNS resolution + all sources
+			}
+			discScanStart("subdomain", fmt.Sprintf("crt.sh *.%s  +  subfinder -d %s %s", rootDomain, rootDomain, subfinderFlags))
+			fs, _ := m.subdomainScanner.Run(ctx, rootDomain, subdomainScanType)
+			discScanDone("subdomain", fs)
+			batchResults <- discoveryBatch{findings: fs, source: "subdomain"}
+		}()
+	}
 
 	// Close the channel when all discovery goroutines finish — in a separate
 	// goroutine so that processing of each batch can begin as soon as it
 	// arrives (e.g. passivedns completes in seconds; subfinder may take minutes).
+	// For IP targets, no goroutines were launched, so this closes immediately.
 	go func() {
 		wgDiscover.Wait()
 		close(batchResults)
@@ -827,37 +845,42 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	launchAssetScan(rootDomain)
 
 	// Start WHOIS and BGP in parallel with discovery — no need to wait.
+	// Skip for IP/localhost targets: WHOIS on IPs returns hosting provider info
+	// (not useful), BGP requires a domain for ASN lookup, AXFR requires NS records.
 	var wgRoot sync.WaitGroup
 	var bgpFindings []finding.Finding
 	var bgpMu sync.Mutex
 
-	wgRoot.Add(1)
-	go func() {
-		defer wgRoot.Done()
-		discScanStart("whois", fmt.Sprintf("RDAP whois lookup for %s", rootDomain))
-		fs, _ := m.whoisScanner.Run(ctx, rootDomain, scanType)
-		discScanDone("whois", fs)
-		appendFindings(fs)
-	}()
-	wgRoot.Add(1)
-	go func() {
-		defer wgRoot.Done()
-		discScanStart("bgp", fmt.Sprintf("bgpview.io  ASN + prefix lookup for %s  →  ip-api.com reverse ASN", rootDomain))
-		fs, _ := m.bgpScanner.Run(ctx, rootDomain, scanType)
-		bgpMu.Lock()
-		bgpFindings = fs
-		bgpMu.Unlock()
-		discScanDone("bgp", fs)
-		appendFindings(fs)
-	}()
+	if !skipDiscovery {
+		wgRoot.Add(1)
+		go func() {
+			defer wgRoot.Done()
+			discScanStart("whois", fmt.Sprintf("RDAP whois lookup for %s", rootDomain))
+			fs, _ := m.whoisScanner.Run(ctx, rootDomain, scanType)
+			discScanDone("whois", fs)
+			appendFindings(fs)
+		}()
+		wgRoot.Add(1)
+		go func() {
+			defer wgRoot.Done()
+			discScanStart("bgp", fmt.Sprintf("bgpview.io  ASN + prefix lookup for %s  →  ip-api.com reverse ASN", rootDomain))
+			fs, _ := m.bgpScanner.Run(ctx, rootDomain, scanType)
+			bgpMu.Lock()
+			bgpFindings = fs
+			bgpMu.Unlock()
+			discScanDone("bgp", fs)
+			appendFindings(fs)
+		}()
+	}
 
 	// Zone transfer runs concurrently with discovery too.
 	var axfrAssets []string
 	var wgAXFR sync.WaitGroup
-	wgAXFR.Add(1)
-	go func() {
-		defer wgAXFR.Done()
-		discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
+	if !skipDiscovery {
+		wgAXFR.Add(1)
+		go func() {
+			defer wgAXFR.Done()
+			discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
 		axfrFinding, axfrHosts := dns.ZoneTransferDiscovery(ctx, rootDomain, rootDomain)
 		var axfrFindings []finding.Finding
 		if axfrFinding != nil {
@@ -886,6 +909,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			launchAssetScan(h)
 		}
 	}()
+	} // end if !skipDiscovery (AXFR)
 
 	discStart := time.Now()
 	// ── Improvement 1 (continued): Process batches as they arrive ───────────
@@ -3115,6 +3139,17 @@ func incrementNetIP(ip net.IP) {
 			break
 		}
 	}
+}
+
+// isIPOrLocalhost returns true when the target is an IP address or localhost.
+// These targets have no subdomains, so subdomain discovery, WHOIS, BGP, DNS
+// AXFR, and passive DNS can all be skipped — saving 1-2s per scan.
+func isIPOrLocalhost(domain string) bool {
+	if domain == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(domain)
+	return ip != nil
 }
 
 func isValidHostname(s string) bool {
