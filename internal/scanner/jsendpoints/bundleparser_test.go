@@ -141,6 +141,40 @@ func TestParseBundle_AWSKey(t *testing.T) {
 	}
 }
 
+func TestParseBundle_AWSKey_Base64FalsePositive(t *testing.T) {
+	// AKIASwBkGAItAHAAaQCR is base64-encoded binary data, not a real AWS key.
+	// Real keys are AKIA + 16 uppercase alphanumeric chars only.
+	js := `var data = "AKIASwBkGAItAHAAaQCRAHQAZQBkAE8AcgBpAGcAaQBu";`
+	bf := ParseBundle(js, "app.js")
+	for _, s := range bf.HardcodedSecrets {
+		if s.Type == "aws_key" {
+			t.Errorf("base64 blob should not trigger AWS key detection: %s", s.Value)
+		}
+	}
+}
+
+func TestParseBundle_AWSKey_MidStringFalsePositive(t *testing.T) {
+	// AKIA appearing in the middle of a longer alphanumeric string is not a key.
+	js := `var blob = "xyzAKIAIOSFODNN7EXAMPLE99";`
+	bf := ParseBundle(js, "app.js")
+	for _, s := range bf.HardcodedSecrets {
+		if s.Type == "aws_key" {
+			t.Errorf("AKIA mid-string should not trigger AWS key detection: %s", s.Value)
+		}
+	}
+}
+
+func TestParseBundle_AWSKey_LowercaseFalsePositive(t *testing.T) {
+	// Contains lowercase after AKIA — not a real AWS key.
+	js := `var x = "AKIAabcdefghijklmnop";`
+	bf := ParseBundle(js, "app.js")
+	for _, s := range bf.HardcodedSecrets {
+		if s.Type == "aws_key" {
+			t.Errorf("lowercase chars after AKIA should not match: %s", s.Value)
+		}
+	}
+}
+
 func TestParseBundle_JWT(t *testing.T) {
 	js := `const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";`
 	bf := ParseBundle(js, "app.js")

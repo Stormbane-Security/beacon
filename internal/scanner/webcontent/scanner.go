@@ -80,10 +80,46 @@ var firebaseKeyRe = regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`)
 // from the "OAuth Client Secret" pattern (e.g. clientsecret:"twitter_clientsecret").
 var oauthSecretIdentifierRe = regexp.MustCompile(`^[a-z][a-z0-9]*([_-][a-z0-9]+)+$`)
 
+// isAWSKeyInBase64Blob returns true if the match at idx is embedded inside
+// a longer base64-encoded blob (10+ surrounding chars are base64 alphabet).
+func isAWSKeyInBase64Blob(content string, idx, matchLen int) bool {
+	const window = 10
+	start := idx - window
+	if start < 0 {
+		start = 0
+	}
+	end := idx + matchLen + window
+	if end > len(content) {
+		end = len(content)
+	}
+	base64Chars := 0
+	totalChars := 0
+	for i := start; i < end; i++ {
+		if i >= idx && i < idx+matchLen {
+			continue
+		}
+		c := content[i]
+		totalChars++
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=' {
+			base64Chars++
+		}
+	}
+	return totalChars >= 6 && float64(base64Chars)/float64(totalChars) > 0.85
+}
+
+// hasAWSKeyWordBoundary returns true if the char before idx is not alphanumeric.
+func hasAWSKeyWordBoundary(content string, idx int) bool {
+	if idx == 0 {
+		return true
+	}
+	c := content[idx-1]
+	return !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/')
+}
+
 var jsScriptSrcRe = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
 
 var secretPatterns = map[string]*regexp.Regexp{
-	"AWS Access Key":           regexp.MustCompile(`(?i)AKIA[0-9A-Z]{16}`),
+	"AWS Access Key":           regexp.MustCompile(`AKIA[A-Z0-9]{16}`),
 	"AWS Secret Key":           regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `][0-9a-zA-Z/+]{40}`),
 	"GitHub Token":             regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
 	"Stripe Secret Key":        regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`),
@@ -597,10 +633,21 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 	// multiple keys produces one finding per key, not just the first.
 	seenMatches := make(map[string]struct{}) // dedup identical matches within the same file
 	for label, pattern := range secretPatterns {
-		matches := pattern.FindAllString(srcStr, -1)
-		for _, match := range matches {
+		indices := pattern.FindAllStringIndex(srcStr, -1)
+		for _, loc := range indices {
+			match := srcStr[loc[0]:loc[1]]
 			if match == "" {
 				continue
+			}
+			// AWS Access Key: reject matches inside base64 blobs or without
+			// a word boundary before AKIA.
+			if label == "AWS Access Key" {
+				if !hasAWSKeyWordBoundary(srcStr, loc[0]) {
+					continue
+				}
+				if isAWSKeyInBase64Blob(srcStr, loc[0], loc[1]-loc[0]) {
+					continue
+				}
 			}
 			// Dedup identical raw matches (same key appearing multiple times in the file).
 			if _, already := seenMatches[label+":"+match]; already {

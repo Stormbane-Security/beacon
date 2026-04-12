@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,16 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
+// envKeyValueRe matches at least one KEY=value line typical of .env files.
+// Requires an uppercase letter at the start of the key name.
+var envKeyValueRe = regexp.MustCompile(`(?m)^[A-Z][A-Z0-9_]+=.+`)
+
+// isEnvFile returns true if the path is a dotenv-style file that needs
+// extra validation to avoid SPA catch-all false positives.
+func isEnvFile(path string) bool {
+	return path == "/.env" ||
+		strings.HasPrefix(path, "/.env.")
+}
 
 func init() {
 	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
@@ -1095,10 +1106,28 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
-		// Heuristic: if the body is an HTML page, it's almost certainly a soft 404.
+		// Heuristic: if the body is an HTML page, it's almost certainly a soft 404
+		// or SPA catch-all route (Next.js, React, Vue return 200+HTML for any path).
 		ct := resp.Header.Get("Content-Type")
 		if strings.Contains(ct, "text/html") && t.bodyContains == "" {
 			continue
+		}
+
+		// For .env-style files: SPA catch-all routes return HTML with 200 status.
+		// Real .env files are text/plain and contain KEY=value lines.
+		if isEnvFile(t.path) {
+			bodyStr := string(body)
+			// HTML response is always a false positive for .env files.
+			if strings.Contains(ct, "text/html") ||
+				strings.HasPrefix(strings.TrimSpace(bodyStr), "<!DOCTYPE") ||
+				strings.HasPrefix(strings.TrimSpace(bodyStr), "<html") ||
+				strings.HasPrefix(strings.TrimSpace(bodyStr), "<HTML") {
+				continue
+			}
+			// Must contain at least one KEY=value pattern (uppercase word before =).
+			if !envKeyValueRe.MatchString(bodyStr) {
+				continue
+			}
 		}
 
 		// Store up to 2000 chars so the AI enrichment pipeline and DLP scanner
