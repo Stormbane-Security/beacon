@@ -135,6 +135,17 @@ func Execute(s Scanner, ctx context.Context, asset string, scanType module.ScanT
 
 	log := scanlog.FromContext(ctx)
 
+	// Fast bail: if the host has been marked unresponsive due to consecutive
+	// timeouts, skip this scanner entirely to avoid wasting time.
+	if sctx, ok := FromContext(ctx); ok {
+		if sctx.HostTimeouts().ShouldSkip(asset) {
+			log.ScannerStart(s.Name(), asset)
+			log.ScannerComplete(s.Name(), asset, 0, 0)
+			result.Error = fmt.Errorf("scanner %s skipped: host %s bailed (consecutive timeouts)", s.Name(), asset)
+			return result
+		}
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			result.Error = fmt.Errorf("scanner %s panicked: %v\n%s", s.Name(), r, debug.Stack())

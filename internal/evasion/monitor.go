@@ -1,7 +1,9 @@
 package evasion
 
 import (
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -275,6 +277,14 @@ func recommendation(dt DetectionType) string {
 	}
 }
 
+// HostTimeoutChecker is the interface used by MonitoredTransport to record
+// timeouts and successes without importing the scan package (avoiding cycles).
+type HostTimeoutChecker interface {
+	RecordTimeout(host string) bool
+	RecordSuccess(host string)
+	ShouldSkip(host string) bool
+}
+
 // MonitoredTransport wraps an http.RoundTripper and automatically checks every
 // response through the Monitor for defense signals. When an AdaptiveRate is
 // configured, it waits before each request based on observed WAF/rate patterns,
@@ -289,11 +299,30 @@ type MonitoredTransport struct {
 	// Rate.RecordResponse(). This creates a feedback loop: WAF blocks → slow
 	// down → blocks stop → speed back up.
 	Rate *AdaptiveRate
+
+	// HostTimeouts is an optional tracker for consecutive per-host timeouts.
+	// When set, timeout errors increment the host's counter and successful
+	// responses reset it. After the threshold is reached, requests to the
+	// host are short-circuited with ErrHostBailed.
+	HostTimeouts HostTimeoutChecker
 }
+
+// ErrHostBailed is returned when a host has been marked as unresponsive
+// after too many consecutive timeouts. Callers should treat this as a
+// permanent skip — no further probes will succeed.
+var ErrHostBailed = fmt.Errorf("host bailed: too many consecutive timeouts")
 
 // RoundTrip executes the request using the base transport, then feeds the
 // response through the Monitor's detection logic.
 func (t *MonitoredTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Fast path: if the host has already been bailed on, don't even try.
+	if t.HostTimeouts != nil {
+		host := req.URL.Hostname()
+		if t.HostTimeouts.ShouldSkip(host) {
+			return nil, ErrHostBailed
+		}
+	}
+
 	// Wait for adaptive rate limiter before sending request.
 	if t.Rate != nil {
 		t.Rate.Wait(req.Context())
@@ -306,9 +335,20 @@ func (t *MonitoredTransport) RoundTrip(req *http.Request) (*http.Response, error
 	reqURL := req.URL.String()
 
 	if err != nil {
+		// Track consecutive timeouts per host.
+		if t.HostTimeouts != nil && isTimeoutErr(err) {
+			host := req.URL.Hostname()
+			t.HostTimeouts.RecordTimeout(host)
+		}
 		// Pass nil resp to signal connection failure.
 		t.Monitor.CheckResponse(reqURL, nil, latency)
 		return nil, err
+	}
+
+	// Successful response — reset the host's timeout counter.
+	if t.HostTimeouts != nil {
+		host := req.URL.Hostname()
+		t.HostTimeouts.RecordSuccess(host)
 	}
 
 	// We need to read part of the body for detection without consuming it
@@ -339,4 +379,17 @@ func (t *MonitoredTransport) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	return resp, nil
+}
+
+// isTimeoutErr returns true if the error is a network timeout.
+func isTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "i/o timeout")
 }

@@ -1756,14 +1756,16 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// before sending additional probes.
 	evasionMonitor := evasion.NewMonitor(m.evasionStrategy)
 	adaptiveRate := evasion.NewAdaptiveRate(0, 30*time.Second) // start unlimited, max 30s between requests
+	hostTimeouts := scan.NewHostTimeoutTracker()
 	baseTransport := httpClient.Transport
 	if baseTransport == nil {
 		baseTransport = http.DefaultTransport
 	}
 	httpClient.Transport = &evasion.MonitoredTransport{
-		Base:    baseTransport,
-		Monitor: evasionMonitor,
-		Rate:    adaptiveRate,
+		Base:         baseTransport,
+		Monitor:      evasionMonitor,
+		Rate:         adaptiveRate,
+		HostTimeouts: hostTimeouts,
 	}
 	ctx = evasion.WithMonitor(ctx, evasionMonitor)
 
@@ -1802,7 +1804,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// Inject ScanContext — provides typed accessors (asset, scanType, HTTP client,
 	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
 	// for backward compatibility.
-	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev).WithHostTimeoutTracker(hostTimeouts)
 	if authHeaders != nil {
 		sctx.WithAuthHeaders(authHeaders)
 	}
@@ -2192,13 +2194,14 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 					baseTransport = http.DefaultTransport
 				}
 				httpClient.Transport = &evasion.MonitoredTransport{
-					Base:    baseTransport,
-					Monitor: evasionMonitor,
-					Rate:    adaptiveRate,
+					Base:         baseTransport,
+					Monitor:      evasionMonitor,
+					Rate:         adaptiveRate,
+					HostTimeouts: hostTimeouts,
 				}
 				// Rebuild scan context with the authenticated client.
 				ctx = authctx.WithHTTPClient(ctx, httpClient)
-				sctx = scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+				sctx = scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev).WithHostTimeoutTracker(hostTimeouts)
 				if sessionInfo != nil && len(sessionInfo.Headers) > 0 {
 					sctx.WithAuthHeaders(sessionInfo.Headers)
 				}
@@ -2295,6 +2298,13 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	for _, name := range plan.Scanners {
 		if phaseADone[name] {
 			continue // already ran in Phase A
+		}
+		// Bail early if the host has been marked unresponsive due to
+		// consecutive timeouts. No point spawning goroutines for probes
+		// that will immediately fail.
+		if hostTimeouts.ShouldSkip(asset) {
+			m.saveSkipMetric(ctx, scanRunID, asset, name, "host_timeout_bail")
+			continue
 		}
 		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 		if skipReason != "" {
@@ -2501,6 +2511,32 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	wg.Wait()
 	asl.PhaseComplete("phaseB", asset, time.Since(phaseBStart), fmt.Sprintf("%d findings so far", len(findings)))
+
+	// Emit an informational finding if the host was bailed on due to timeouts.
+	if hostTimeouts.ShouldSkip(asset) {
+		findings = append(findings, finding.Finding{
+			CheckID:     finding.CheckMetaHostTimeoutBail,
+			Module:      "surface",
+			Scanner:     "timeout_tracker",
+			Severity:    finding.SeverityInfo,
+			Title:       fmt.Sprintf("Host %s bailed: %d+ consecutive timeouts", asset, scan.HostTimeoutThreshold),
+			Description: "This host was consistently unresponsive (all HTTP requests timed out). Remaining scanners were skipped to avoid wasting time. The host may be offline, firewalled, or tarpitting connections.",
+			Asset:       asset,
+			Evidence: map[string]any{
+				"threshold": scan.HostTimeoutThreshold,
+			},
+			ProofCommand: fmt.Sprintf("curl -v --connect-timeout 10 https://%s/", asset),
+			Confidence:   finding.ConfidenceObserved,
+			DiscoveredAt: time.Now(),
+		})
+		if progressFn != nil {
+			progressFn(module.ProgressEvent{
+				Phase:       "host_bail",
+				ActiveAsset: asset,
+				StatusMsg:   fmt.Sprintf("%s bailed after %d+ consecutive timeouts — remaining scanners skipped", asset, scan.HostTimeoutThreshold),
+			})
+		}
+	}
 
 	// ── AI-classified unknown technology finding ──────────────────────────────
 	// Emitted when deterministic rules couldn't classify the asset and AI was

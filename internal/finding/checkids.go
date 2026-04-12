@@ -2099,7 +2099,8 @@ const (
 	CheckOnpremLibvirtVMNoMemBalloon     CheckID = "onprem.libvirt.vm_no_memballoon"        // VM without memory balloon driver (can't reclaim memory)
 
 	// Meta — internal beacon operational findings
-	CheckMetaDryRunPlan CheckID = "meta.dry_run_plan" // Dry-run scan plan (no scanners executed)
+	CheckMetaDryRunPlan      CheckID = "meta.dry_run_plan"      // Dry-run scan plan (no scanners executed)
+	CheckMetaHostTimeoutBail CheckID = "meta.host_timeout_bail" // Host bailed after consecutive timeouts
 
 	// ── Cookie Security (expanded) ──────────────────────────────────────
 	CheckCookieNoPrefix       CheckID = "cookie.no_secure_prefix"    // session cookie missing __Host-/__Secure- prefix
@@ -4092,7 +4093,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOnpremLibvirtVMNoMemBalloon: {CheckOnpremLibvirtVMNoMemBalloon, SeverityLow, ModeDeep},
 
 	// Meta — internal operational findings (always surface-safe)
-	CheckMetaDryRunPlan: {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
+	CheckMetaDryRunPlan:      {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
+	CheckMetaHostTimeoutBail: {CheckMetaHostTimeoutBail, SeverityInfo, ModeSurface},
 
 	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
 	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},
