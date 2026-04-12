@@ -267,7 +267,7 @@ var targets = []sensitiveFile{
 			"variables, system properties, and application configuration — including database credentials, " +
 			"API keys, and secrets that Spring tries to mask in the UI."},
 	{path: "/actuator/heapdump", title: "Spring Boot Actuator /heapdump exposed", severity: finding.SeverityCritical,
-		checkID: finding.CheckExposureSpringActuator,
+		checkID: finding.CheckExposureSpringActuator, bodyContains: "JAVA PROFILE",
 		description: "The Spring Boot /actuator/heapdump endpoint is publicly accessible. This endpoint serves " +
 			"a full JVM heap dump containing all in-memory objects — passwords, session tokens, encryption keys, " +
 			"and sensitive business data can be extracted from the dump with standard Java tools."},
