@@ -218,10 +218,24 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	_ = s.surfaceList // template list files no longer used (nuclei v3.x uses -tags)
 	_ = s.deepList
 
+	// Write JSONL findings to a temp file instead of stdout.
+	// This avoids -silent suppressing -jsonl (v3.x bug) while keeping
+	// stdout clean of banner/progress noise.
+	outFile, err2 := os.CreateTemp("", "nuclei-*.jsonl")
+	if err2 != nil {
+		return nil, fmt.Errorf("nuclei: create temp file: %w", err2)
+	}
+	outPath := outFile.Name()
+	_ = outFile.Close()
+	defer os.Remove(outPath)
+
 	args := []string{
 		"-target", asset,
-		"-jsonl",    // JSONL output to stdout (nuclei v3.x)
-		"-no-color", // -silent suppresses -jsonl in v3.x, so we omit it
+		"-jsonl",         // JSONL format
+		"-o", outPath,    // write findings to file (not affected by -silent)
+		"-silent",        // suppress banner/progress noise
+		"-no-color",
+		"-omit-raw",      // exclude full request/response from JSONL
 		"-timeout", "30",
 		"-retries", "1",
 		"-no-interactsh",       // skip OOB interaction server (saves 2-3s startup)
@@ -261,7 +275,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	findings, err := parseOutput(asset, stdout.Bytes())
+	// Read findings from the temp file (not stdout — avoids banner noise).
+	outData, readErr := os.ReadFile(outPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, fmt.Errorf("nuclei: read output: %w", readErr)
+	}
+
+	findings, err := parseOutput(asset, outData)
 	if err != nil {
 		return nil, err
 	}
@@ -374,6 +394,9 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 
 		var r nucleiResult
 		if err := json.Unmarshal(line, &r); err != nil {
+			// Log parse failures for non-empty lines that look like JSON.
+			if len(line) > 0 && line[0] == '{' {
+			}
 			continue // skip malformed lines
 		}
 		if r.TemplateID == "" || r.Info.Name == "" {
