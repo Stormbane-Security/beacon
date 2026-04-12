@@ -4364,6 +4364,17 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 		{"consul", "consul"}, {"traefik", "traefik"},
 		{"portainer", "portainer"}, {"harbor", "harbor"},
 		{"airflow", "airflow"}, {"jupyter", "jupyter"},
+		{"wildfly", "jboss"}, {"jboss", "jboss"},
+		{"solr", "solr"}, {"nextcloud", "nextcloud"},
+		{"ghost", "ghost"}, {"pgadmin", "pgadmin"},
+		{"moodle", "moodle"}, {"magento", "magento"},
+		{"phpmyadmin", "phpmyadmin"}, {"roundcube", "roundcube"},
+		{"confluence", "confluence"}, {"jira", "jira"},
+		{"bitbucket", "bitbucket"}, {"bamboo", "bamboo"},
+		{"zabbix", "zabbix"}, {"nagios", "nagios"},
+		{"splunk", "splunk"}, {"elastic", "elastic"},
+		{"opensearch", "opensearch"}, {"argocd", "argocd"},
+		{"rancher", "rancher"}, {"verdaccio", "verdaccio"},
 	} {
 		if strings.Contains(fw, mapping.keyword) {
 			tags[mapping.tag] = true
@@ -4383,12 +4394,23 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 		}
 	}
 
-	// Service identifications from portscan.
+	// Service identifications from portscan — check both service_identified
+	// and other port.* check IDs that indicate specific services.
 	for _, f := range phaseAFindings {
-		if f.CheckID != finding.CheckPortServiceIdentified {
+		cid := string(f.CheckID)
+		if f.CheckID != finding.CheckPortServiceIdentified &&
+			!strings.HasPrefix(cid, "port.") {
 			continue
 		}
 		svc, _ := f.Evidence["service"].(string)
+		// Also check the check ID itself for service hints.
+		if svc == "" {
+			// Extract service name from check ID: port.redis_unauthenticated → redis
+			if strings.HasPrefix(cid, "port.") {
+				parts := strings.SplitN(cid[5:], "_", 2)
+				svc = parts[0]
+			}
+		}
 		svcLow := strings.ToLower(svc)
 		for _, mapping := range []struct{ keyword, tag string }{
 			{"elasticsearch", "elasticsearch"}, {"elastic", "elastic"},
@@ -4408,6 +4430,31 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 			{"smtp", "smtp"}, {"ldap", "ldap"},
 		} {
 			if strings.Contains(svcLow, mapping.keyword) {
+				tags[mapping.tag] = true
+			}
+		}
+	}
+
+	// Page title hints — classify extracts the HTML <title> tag.
+	if ev.Title != "" {
+		titleLow := strings.ToLower(ev.Title)
+		for _, mapping := range []struct{ keyword, tag string }{
+			{"wildfly", "jboss"}, {"jboss", "jboss"},
+			{"solr", "solr"}, {"nextcloud", "nextcloud"},
+			{"ghost", "ghost"}, {"pgadmin", "pgadmin"},
+			{"phpmyadmin", "phpmyadmin"}, {"adminer", "adminer"},
+			{"grafana", "grafana"}, {"kibana", "kibana"},
+			{"jenkins", "jenkins"}, {"gitlab", "gitlab"},
+			{"gitea", "gitea"}, {"portainer", "portainer"},
+			{"sonarqube", "sonarqube"}, {"confluence", "confluence"},
+			{"jira", "jira"}, {"zabbix", "zabbix"},
+			{"nagios", "nagios"}, {"splunk", "splunk"},
+			{"harbor", "harbor"}, {"argocd", "argocd"},
+			{"rancher", "rancher"}, {"airflow", "airflow"},
+			{"moodle", "moodle"}, {"roundcube", "roundcube"},
+			{"vault", "vault"}, {"consul", "consul"},
+		} {
+			if strings.Contains(titleLow, mapping.keyword) {
 				tags[mapping.tag] = true
 			}
 		}
