@@ -1152,6 +1152,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
+		// Reject clearly wrong content for probes without body validation.
+		// Shell scripts (#!/), PDFs (%PDF), images, and archives are never
+		// the application endpoint a CVE probe is looking for.
+		if t.bodyContains == "" && len(body) > 4 {
+			prefix := string(body[:4])
+			switch {
+			case strings.HasPrefix(prefix, "#!/"):  // shell script
+				continue
+			case strings.HasPrefix(prefix, "%PDF"): // PDF
+				continue
+			case strings.HasPrefix(prefix, "\x89PNG"): // PNG
+				continue
+			case strings.HasPrefix(prefix, "GIF8"): // GIF
+				continue
+			case strings.HasPrefix(prefix, "PK"): // ZIP/JAR
+				continue
+			case body[0] == 0xFF && body[1] == 0xD8: // JPEG
+				continue
+			}
+		}
+
 		// For .env-style files: SPA catch-all routes return HTML with 200 status.
 		// Real .env files are text/plain and contain KEY=value lines.
 		if isEnvFile(t.path) {
