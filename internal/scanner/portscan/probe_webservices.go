@@ -1000,9 +1000,23 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 }
 
 func detectViteDev(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	// Vite's /__vite_ping returns a tiny non-HTML response. SPAs return HTML for any path.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/__vite_ping")
-	if !ok || strings.HasPrefix(strings.TrimSpace(body), "<") {
+	// Vite's /__vite_ping returns a tiny non-HTML response. SPAs and generic
+	// web servers return HTML or their default response for any path.
+	// Require a short, specific response — Vite returns empty body or
+	// a very short text response, and also sets specific headers.
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/__vite_ping")
+	if !ok {
+		return nil
+	}
+	trimmed := strings.TrimSpace(body)
+	// Reject HTML, shell scripts, and long responses (Vite returns < 20 bytes).
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "#!") || len(trimmed) > 50 {
+		return nil
+	}
+	// Require a Vite-specific signal: the response should NOT have a Server
+	// header from known non-Vite servers.
+	server := strings.ToLower(hdrs.Get("Server"))
+	if server != "" && !strings.Contains(server, "vite") {
 		return nil
 	}
 	now := time.Now()

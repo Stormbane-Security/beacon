@@ -409,23 +409,21 @@ func detectCouchDB(ctx context.Context, host string, port int, banner string, ma
 }
 
 func detectInfluxDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	// InfluxDB /ping returns 204 No Content. If the response has HTML body content,
-	// it's a SPA returning its shell, not InfluxDB.
-	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/ping")
+	// InfluxDB /ping returns 204 No Content with X-Influxdb-Version header.
+	// Require the header — without it, any service returning non-HTML on /ping
+	// would false-positive (Portainer, Traefik, nginx, etc.).
+	_, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/ping")
 	if !ok {
 		return nil
 	}
-	trimmed := strings.TrimSpace(body)
-	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "<!") {
-		return nil // HTML response — not InfluxDB
+	ver := hdrs.Get("X-Influxdb-Version")
+	if ver == "" {
+		ver = hdrs.Get("X-Influxdb-Build")
 	}
-	ev := map[string]any{"port": port, "service": "influxdb", "authenticated": false, "banner": banner}
-	// Extract InfluxDB version from X-Influxdb-Version header (returned on /ping).
-	if ver := hdrs.Get("X-Influxdb-Version"); ver != "" {
-		ev["version"] = ver
-	} else if ver := hdrs.Get("X-Influxdb-Build"); ver != "" {
-		ev["version"] = ver
+	if ver == "" {
+		return nil // No InfluxDB header — not InfluxDB
 	}
+	ev := map[string]any{"port": port, "service": "influxdb", "authenticated": false, "banner": banner, "version": ver}
 	return []finding.Finding{makeF(
 		finding.CheckPortInfluxDBExposed,
 		finding.SeverityHigh,

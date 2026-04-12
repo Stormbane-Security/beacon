@@ -4173,9 +4173,11 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 	if strings.HasPrefix(trimmed, "<!") || strings.HasPrefix(strings.ToLower(trimmed), "<html") {
 		return false
 	}
-	// Reject S3/object-storage XML error responses.
+	// Reject S3/object-storage XML error responses (MinIO, AWS S3, etc.).
 	if strings.Contains(bodyStr, "<BucketName>") || strings.Contains(bodyStr, "<Code>AccessDenied</Code>") ||
-		strings.Contains(bodyStr, "x-amz-request-id") || strings.Contains(bodyStr, "X-Amz-") {
+		strings.Contains(bodyStr, "x-amz-request-id") || strings.Contains(bodyStr, "X-Amz-") ||
+		strings.Contains(bodyStr, "<Code>BadRequest</Code>") ||
+		strings.Contains(strings.ToLower(resp.Header.Get("Server")), "minio") {
 		return false
 	}
 	return strings.Contains(bodyStr, "schemas.dmtf.org") || strings.Contains(bodyStr, "xmlsoap.org")

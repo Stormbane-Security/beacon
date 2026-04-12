@@ -197,15 +197,12 @@ func detectNFS(ctx context.Context, host string, port int, _ string, makeF findi
 func detectHazelcast(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
 	body, ok := probeHTTPBody(ctx, host, port, false, "/hazelcast/rest/cluster")
 	if !ok {
-		// Hazelcast may not have REST API enabled; try a raw TCP connection check.
-		body, ok = probeHTTPAnyBody(ctx, host, port, false, "/")
-		if !ok || !strings.Contains(strings.ToLower(body), "hazelcast") {
-			return nil
-		}
+		return nil
 	}
 	lower := strings.ToLower(body)
-	if !strings.Contains(lower, "hazelcast") && !strings.Contains(lower, "member") &&
-		!strings.Contains(lower, "cluster") {
+	// Require "hazelcast" in the response — "member" and "cluster" alone
+	// match too many other services (Adminer, Elasticsearch, etc.).
+	if !strings.Contains(lower, "hazelcast") {
 		return nil
 	}
 
