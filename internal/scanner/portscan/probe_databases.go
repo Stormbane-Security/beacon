@@ -367,7 +367,7 @@ func detectMemcached(ctx context.Context, host string, port int, banner string, 
 
 func detectCouchDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Check unauthenticated access: /_all_dbs returns JSON array without credentials.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/_all_dbs")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/_all_dbs")
 	if ok && strings.HasPrefix(strings.TrimSpace(body), "[") {
 		ev := map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner}
 		// Extract CouchDB version from root / JSON response ({"couchdb":"Welcome","version":"3.3.2"}).
@@ -525,7 +525,7 @@ func detectNeo4j(ctx context.Context, host string, port int, banner string, make
 
 func detectSplunkMgmt(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Splunk /services/server/info returns XML with <entry> elements and "server-info".
-	body, ok := probeHTTPBody(ctx, host, port, true, "/services/server/info")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, true, "/services/server/info")
 	if !ok {
 		return nil
 	}

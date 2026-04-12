@@ -190,10 +190,10 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 	}
 
 	// Also check if the status API reveals it's Portainer without auth.
-	statusBody, ok := probeHTTPBody(ctx, host, port, useTLS, "/api/status")
+	statusBody, ok := probeHTTPBodyNotCatchAll(ctx, host, port, useTLS, "/api/status")
 	if ok && strings.Contains(statusBody, "Version") {
 		// Portainer is accessible, but admin is set up. Check if we can list endpoints.
-		endpointsBody, ok := probeHTTPBody(ctx, host, port, useTLS, "/api/endpoints")
+		endpointsBody, ok := probeHTTPBodyNotCatchAll(ctx, host, port, useTLS, "/api/endpoints")
 		if ok && strings.Contains(endpointsBody, "Name") {
 			noAuthEv := map[string]any{"port": port, "service": "portainer", "authenticated": false}
 			if ver := parseJSONStringField(statusBody, "Version"); ver != "" {

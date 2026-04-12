@@ -50,6 +50,22 @@ var (
 	_ = probeSMBNullSession
 )
 
+// catchAllCache stores per-host:port:tls catch-all baselines so we only probe
+// each origin once. Protected by catchAllCacheMu.
+var (
+	catchAllCache   = make(map[string]*scan.CatchAllBaseline)
+	catchAllCacheMu sync.Mutex
+)
+
+// ResetCatchAllCache clears the catch-all baseline cache. Called between scan
+// runs so stale baselines from a previous target don't affect the next scan.
+// Also useful in tests.
+func ResetCatchAllCache() {
+	catchAllCacheMu.Lock()
+	catchAllCache = make(map[string]*scan.CatchAllBaseline)
+	catchAllCacheMu.Unlock()
+}
+
 // withScanType stores the scan type in the context.
 func withScanType(ctx context.Context, st module.ScanType) context.Context {
 	return context.WithValue(ctx, scanTypeKey, st)
@@ -286,6 +302,9 @@ const maxPortFindings = 50
 // Surface mode scans the top 30 most impactful ports (critical + high).
 // Deep mode scans all 50+ ports including the extended list.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// Clear stale catch-all baselines from previous targets.
+	ResetCatchAllCache()
+
 	// Store scan type in context so probes can check for authorized mode.
 	ctx = withScanType(ctx, scanType)
 
@@ -1116,6 +1135,107 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 		return "", true // connected but couldn't read body
 	}
 	return string(b), true
+}
+
+// getCatchAllBaseline returns the cached catch-all baseline for a host:port:tls
+// origin. On the first call for a given origin it probes the server with a
+// random nonexistent path and caches the result.
+func getCatchAllBaseline(ctx context.Context, host string, port int, useTLS bool) *scan.CatchAllBaseline {
+	key := fmt.Sprintf("%s:%d:%v", host, port, useTLS)
+	catchAllCacheMu.Lock()
+	if b, ok := catchAllCache[key]; ok {
+		catchAllCacheMu.Unlock()
+		return b
+	}
+	catchAllCacheMu.Unlock()
+
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	baseURL := fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	baseline := scan.DetectCatchAll(ctx, client, baseURL)
+	catchAllCacheMu.Lock()
+	catchAllCache[key] = baseline
+	catchAllCacheMu.Unlock()
+	return baseline
+}
+
+// probeHTTPBodyNotCatchAll is like probeHTTPBody but filters out catch-all
+// (SPA) responses. If the server returns 200 for random nonexistent paths and
+// the response matches the catch-all baseline, this returns ("", false) — the
+// path does not genuinely exist.
+//
+// Use this for probes where "path returned 200" IS the finding (CVE path
+// checks, admin panel discovery). Probes that validate specific body content
+// (strings.Contains(body, "ApiVersion")) are already safe and can keep using
+// probeHTTPBody directly.
+func probeHTTPBodyNotCatchAll(ctx context.Context, host string, port int, useTLS bool, path string) (string, bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", false
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", true // connected but couldn't read body
+	}
+
+	// Check against catch-all baseline: if the response is indistinguishable
+	// from the server's default 200 page, the path doesn't really exist.
+	baseline := getCatchAllBaseline(ctx, host, port, useTLS)
+	if !baseline.IsDifferentFromBaseline(resp, b) {
+		return "", false
+	}
+	return string(b), true
+}
+
+// probeHTTPNotCatchAll is like probeHTTP but filters out catch-all responses.
+// Returns true only if the path genuinely exists (response differs from the
+// server's catch-all baseline).
+func probeHTTPNotCatchAll(ctx context.Context, host string, port int, useTLS bool, path string) bool {
+	_, ok := probeHTTPBodyNotCatchAll(ctx, host, port, useTLS, path)
+	return ok
 }
 
 // probeHTTPBodyAndHeaders is like probeHTTPBody but returns the full header map and

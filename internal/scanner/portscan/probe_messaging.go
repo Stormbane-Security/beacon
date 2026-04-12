@@ -149,7 +149,7 @@ func detectKafka(ctx context.Context, host string, port int, banner string, make
 }
 
 func detectNATSMonitoring(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/varz")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/varz")
 	if !ok {
 		return nil
 	}
@@ -253,7 +253,7 @@ func detectZooKeeper(ctx context.Context, host string, port int, banner string, 
 }
 
 func detectPulsarAdmin(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/admin/v2/clusters")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/admin/v2/clusters")
 	if !ok {
 		return nil
 	}
@@ -279,7 +279,7 @@ func detectPulsarAdmin(ctx context.Context, host string, port int, banner string
 }
 
 func detectNiFi(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/nifi/")
+	body, ok := probeHTTPBodyNotCatchAll(ctx, host, port, false, "/nifi/")
 	if !ok {
 		return nil
 	}
