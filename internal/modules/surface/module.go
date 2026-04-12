@@ -2565,23 +2565,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	wg.Wait()
 	asl.PhaseComplete("phaseB", asset, time.Since(phaseBStart), fmt.Sprintf("%d findings so far", len(findings)))
 
-	// Emit an informational finding if the host was bailed on due to timeouts.
+	// Log (but don't emit a finding) when a host is bailed on due to timeouts.
+	// This is scanner metadata, not a vulnerability — it shouldn't appear in reports.
 	if hostTimeouts.ShouldSkip(asset) {
-		findings = append(findings, finding.Finding{
-			CheckID:     finding.CheckMetaHostTimeoutBail,
-			Module:      "surface",
-			Scanner:     "timeout_tracker",
-			Severity:    finding.SeverityInfo,
-			Title:       fmt.Sprintf("Host %s bailed: %d+ consecutive timeouts", asset, scan.HostTimeoutThreshold),
-			Description: "This host was consistently unresponsive (all HTTP requests timed out). Remaining scanners were skipped to avoid wasting time. The host may be offline, firewalled, or tarpitting connections.",
-			Asset:       asset,
-			Evidence: map[string]any{
-				"threshold": scan.HostTimeoutThreshold,
-			},
-			ProofCommand: fmt.Sprintf("curl -v --connect-timeout 10 https://%s/", asset),
-			Confidence:   finding.ConfidenceObserved,
-			DiscoveredAt: time.Now(),
-		})
+		asl.Debug("host_timeout_bail", "asset", asset, "threshold", scan.HostTimeoutThreshold)
 		if progressFn != nil {
 			progressFn(module.ProgressEvent{
 				Phase:       "host_bail",

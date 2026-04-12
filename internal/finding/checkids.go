@@ -2571,7 +2571,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCSPUnsafeInline:       {CheckCSPUnsafeInline, SeverityMedium, ModeSurface},
 	CheckCSPUnsafeEval:         {CheckCSPUnsafeEval, SeverityMedium, ModeSurface},
 	CheckCSPWildcardSource:     {CheckCSPWildcardSource, SeverityHigh, ModeSurface},
-	CheckWAFNotDetected:     {CheckWAFNotDetected, SeverityMedium, ModeSurface},
+	CheckWAFNotDetected:     {CheckWAFNotDetected, SeverityInfo, ModeSurface},
 	CheckWAFDetected:        {CheckWAFDetected, SeverityInfo, ModeSurface},
 	CheckWAFOriginExposed:      {CheckWAFOriginExposed, SeverityCritical, ModeSurface},
 	CheckWAFBypassHeader:       {CheckWAFBypassHeader, SeverityHigh, ModeDeep},

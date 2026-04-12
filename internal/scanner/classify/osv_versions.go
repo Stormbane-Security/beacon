@@ -113,8 +113,14 @@ func CheckOSVVersions(ctx context.Context, ev playbook.Evidence, asset string) [
 			// Downgrade advisories with no CVE IDs and no severity to info —
 			// these are distro package advisories (ALEA, DSA, USN, etc.) that
 			// are often bug fixes, not security vulnerabilities.
-			if len(cveIDs) == 0 && vuln.Severity == "" {
-				severity = finding.SeverityInfo
+			// If there IS a CVE alias but no CVSS, treat as medium (real vuln,
+			// just missing severity scoring).
+			if vuln.Severity == "" {
+				if len(cveIDs) == 0 {
+					severity = finding.SeverityInfo
+				} else {
+					severity = finding.SeverityMedium
+				}
 			}
 
 			title := fmt.Sprintf("Known CVE: %s affects %s %s", cveStr, meta.serviceName, meta.version)

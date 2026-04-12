@@ -567,8 +567,8 @@ func TestDetectWAF_NoWAFHeaders_FindingEmitted(t *testing.T) {
 	if f.CheckID != finding.CheckWAFNotDetected {
 		t.Errorf("expected CheckWAFNotDetected, got %s", f.CheckID)
 	}
-	if f.Severity != finding.SeverityMedium {
-		t.Errorf("expected SeverityMedium, got %s", f.Severity)
+	if f.Severity != finding.SeverityInfo {
+		t.Errorf("expected SeverityInfo, got %s", f.Severity)
 	}
 }
 

@@ -36,7 +36,7 @@ func init() {
 		scan.Check(finding.CheckJSInternalEndpoint, finding.SeverityMedium, finding.ModeSurface),
 		scan.Check(finding.CheckJSSourceMapExposed, finding.SeverityMedium, finding.ModeSurface),
 		scan.Check(finding.CheckSecretInResponseHeader, finding.SeverityHigh, finding.ModeSurface),
-		scan.Check(finding.CheckWAFNotDetected, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckWAFNotDetected, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckJSExternalServiceRef, finding.SeverityInfo, finding.ModeSurface),
 	)
 }
@@ -590,12 +590,13 @@ func detectWAF(asset string, resp *http.Response) *finding.Finding {
 		}
 	}
 
-	// No WAF signature found
+	// No WAF signature found — this is an observation, not a vulnerability.
+	// Absence of a WAF is common and doesn't indicate a specific risk.
 	return &finding.Finding{
 		CheckID:      finding.CheckWAFNotDetected,
 		Module:       "surface",
 		Scanner:      scannerName,
-		Severity:     finding.SeverityMedium,
+		Severity:     finding.SeverityInfo,
 		Title:        "No WAF or CDN detected",
 		Description:  fmt.Sprintf("%s does not appear to have a Web Application Firewall or CDN in front of it. This means malicious traffic reaches your servers directly with no filtering layer.", asset),
 		Asset:        asset,
