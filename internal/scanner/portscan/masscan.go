@@ -30,7 +30,7 @@ type masscanPort struct {
 // Returns a list of "ip:port" strings for open ports found.
 // Only for CIDR targets, not single hosts. Returns nil if masscan is not
 // installed or the --no-masscan flag was used (masscanBin == "").
-func runMasscan(ctx context.Context, cidr string, ports string, masscanBin string) ([]string, error) {
+func RunMasscan(ctx context.Context, cidr string, ports string, masscanBin string) ([]string, error) {
 	if masscanBin == "" {
 		return nil, nil
 	}

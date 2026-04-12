@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -3091,19 +3092,42 @@ func expandPattern(pattern, domain string) string {
 // port 80 or 443.
 func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 	const maxIPs = 4096
-	const concurrency = 50 // higher concurrency — TCP connect is cheap
+	const concurrency = 50
 
 	var mu sync.Mutex
 	var liveIPs []string
 	seen := map[string]bool{}
 
+	// Try masscan first — scans ALL 65535 ports at wire speed.
+	// Falls back to TCP connect on known ports if masscan is unavailable.
+	masscanBin := "masscan"
+	if _, err := exec.LookPath(masscanBin); err != nil {
+		masscanBin = ""
+	}
+	if masscanBin != "" {
+		for _, cidr := range cidrs {
+			results, err := portscan.RunMasscan(ctx, cidr, "0-65535", masscanBin)
+			if err == nil && len(results) > 0 {
+				for _, hostPort := range results {
+					host, _, _ := net.SplitHostPort(hostPort)
+					if host != "" && !seen[host] {
+						seen[host] = true
+						liveIPs = append(liveIPs, host)
+					}
+				}
+			}
+		}
+		if len(liveIPs) > 0 {
+			return liveIPs
+		}
+		// masscan found nothing or failed — fall through to TCP connect
+	}
+
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
-	// Probe ALL known ports via TCP connect — not just HTTP.
-	// Uses the same port list as the portscan scanner so we find SSH,
-	// databases, message queues, etc. Any open port = live host.
-	// The full portscan runs later on each live IP for thorough coverage.
+	// Fallback: TCP connect probe on all known ports (~130 ports).
+	// Slower than masscan but doesn't need root/raw sockets.
 	probePorts := portscan.AllKnownPorts()
 
 	probe := func(ip string) {
@@ -3120,14 +3144,13 @@ func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 				continue
 			}
 			_ = conn.Close()
-			// Any open port = live host
 			mu.Lock()
 			if !seen[ip] {
 				seen[ip] = true
 				liveIPs = append(liveIPs, ip)
 			}
 			mu.Unlock()
-			return // found one open port, no need to check more
+			return
 		}
 	}
 
