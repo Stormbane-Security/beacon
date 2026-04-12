@@ -1,0 +1,24 @@
+name: docker-registry-v2-unauthenticated
+description: "Docker Registry v2 with no auth — should detect registry API + catalog access"
+tags: [vulnerable, docker, registry, container]
+
+services:
+  registry:
+    image: registry:2
+    ports: ["5000:5000"]
+
+ready:
+  cmd: "curl -sf http://localhost:5000/v2/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-registry-exposed
+    type: beacon
+    target: localhost:5000
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "5000", "--verbose"]
+    expect:
+      min_findings: 1
+      has_check_id: "container.registry_exposed"
+
+timeout: 5m

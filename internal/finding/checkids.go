@@ -3950,7 +3950,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGitLabCIPrivilegedRunner: {CheckGitLabCIPrivilegedRunner, SeverityHigh, ModeSurface},
 
 	// Container Registry — Deep (active probe)
-	CheckContainerRegistryExposed:       {CheckContainerRegistryExposed, SeverityCritical, ModeDeep},
+	CheckContainerRegistryExposed:       {CheckContainerRegistryExposed, SeverityHigh, ModeSurface},
 	CheckContainerImageUnsigned:         {CheckContainerImageUnsigned, SeverityMedium, ModeDeep},
 	CheckContainerImageLatestTag:        {CheckContainerImageLatestTag, SeverityLow, ModeDeep},
 	CheckContainerRegistryAnonymousPush: {CheckContainerRegistryAnonymousPush, SeverityCritical, ModeDeep},
