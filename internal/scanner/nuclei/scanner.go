@@ -213,18 +213,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, fmt.Errorf("nuclei: %w", err)
 	}
 
-	templateList := s.surfaceList
-	// Exploitation probes require --authorized (beyond --deep).
-	if scanType == module.ScanAuthorized {
-		templateList = s.deepList
-	}
+	// Use tag-based filtering: surface mode runs safe/passive templates,
+	// authorized mode enables exploitation templates.
+	_ = s.surfaceList // template list files no longer used (nuclei v3.x uses -tags)
+	_ = s.deepList
 
 	args := []string{
 		"-target", asset,
-		"-tl", templateList, // template list file
-		"-json-export", "-", // JSON output to stdout
-		"-silent",
-		"-no-color",
+		"-jsonl",    // JSONL output to stdout (nuclei v3.x)
+		"-no-color", // -silent suppresses -jsonl in v3.x, so we omit it
 		"-timeout", "30",
 		"-retries", "1",
 		"-no-interactsh",       // skip OOB interaction server (saves 2-3s startup)
@@ -237,7 +234,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// These could disrupt the target service even with authorization.
 		"-etags", "dos,crash,destructive",
 		// Skip templates fully covered by native beacon scanners.
-		"-exclude-id", strings.Join(nativelyExcluded, ","),
+		"-eid", strings.Join(nativelyExcluded, ","),
+	}
+
+	// In surface mode, exclude exploitation/intrusive template tags.
+	if scanType == module.ScanSurface {
+		args = append(args, "-etags", "intrusive,rce,sqli,xss,lfi,rfi,ssrf,ssti,upload,deserialization,unauth-upload")
 	}
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
@@ -311,14 +313,13 @@ func (s *Scanner) RunWithTags(ctx context.Context, asset string, tags []string) 
 	args := []string{
 		"-target", asset,
 		"-tags", strings.Join(tags, ","),
-		"-json-export", "-",
-		"-silent",
+		"-jsonl",
 		"-no-color",
 		"-timeout", "30",
 		"-retries", "1",
 		"-etags", "dos,crash,destructive",
 		// Skip templates fully covered by native beacon scanners.
-		"-exclude-id", strings.Join(nativelyExcluded, ","),
+		"-eid", strings.Join(nativelyExcluded, ","),
 	}
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
