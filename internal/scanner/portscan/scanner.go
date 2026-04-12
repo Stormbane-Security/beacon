@@ -4145,6 +4145,20 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 	_ = resp.Body.Close()
+
+	// Early reject: known non-WinRM servers.
+	server := strings.ToLower(resp.Header.Get("Server"))
+	if strings.Contains(server, "minio") || strings.Contains(server, "nginx") ||
+		strings.Contains(server, "apache") || strings.Contains(server, "traefik") ||
+		strings.Contains(server, "caddy") || strings.Contains(server, "envoy") {
+		return false
+	}
+
+	// WinRM only returns 401, 415, or 200. Any other status is not WinRM.
+	if resp.StatusCode != 401 && resp.StatusCode != 415 && resp.StatusCode != 200 {
+		return false
+	}
+
 	// WinRM 401 responses include WWW-Authenticate with Negotiate/NTLM/Kerberos.
 	if resp.StatusCode == 401 {
 		authHeader := resp.Header.Get("WWW-Authenticate")
