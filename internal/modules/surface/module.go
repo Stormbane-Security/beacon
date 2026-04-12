@@ -2309,6 +2309,15 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// This is an additional filter on top of playbook selection and scannerSkipReason.
 	assetIsIP := isIPOrLocalhost(asset) || net.ParseIP(strings.Split(asset, ":")[0]) != nil
 	relevantScanners := selectScanners(phaseAFindings, &ev, openPorts, assetIsIP)
+
+	// Build fingerprint-driven nuclei tags from Phase A evidence.
+	// This restricts nuclei to templates relevant to the identified services,
+	// cutting scan time from 4+ minutes (7000 templates) to seconds.
+	nucleiTags := buildNucleiTags(&ev, phaseAFindings)
+	if len(nucleiTags) > 0 {
+		ctx = nuclei.WithTags(ctx, nucleiTags)
+	}
+
 	if progressFn != nil {
 		var skippedByRelevance int
 		for _, name := range plan.Scanners {
@@ -4326,6 +4335,107 @@ var injectionScannerNames = map[string]bool{
 // existing scannerSkipReason checks (noHTTP, WAF, service-class). If a
 // playbook says "run jwt" but Phase A found no web server, this filter skips
 // it.
+// buildNucleiTags derives nuclei template tags from Phase A fingerprinting.
+// Instead of running all ~7000 templates (4+ minutes), nuclei runs only
+// templates tagged for the identified services (seconds).
+// Returns nil if no specific services were identified (run all templates).
+func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []string {
+	tags := map[string]bool{}
+
+	// Always include authentication-bypass checks.
+	tags["unauth"] = true
+
+	// Framework / CMS from classify evidence.
+	fw := strings.ToLower(ev.Framework)
+	for _, mapping := range []struct{ keyword, tag string }{
+		{"wordpress", "wordpress"}, {"wp-", "wordpress"},
+		{"drupal", "drupal"}, {"joomla", "joomla"},
+		{"laravel", "laravel"}, {"symfony", "symfony"},
+		{"django", "django"}, {"flask", "flask"},
+		{"rails", "rails"}, {"spring", "spring"},
+		{"express", "express"}, {"next.js", "nextjs"},
+		{"react", "react"}, {"angular", "angular"},
+		{"grafana", "grafana"}, {"kibana", "kibana"},
+		{"jenkins", "jenkins"}, {"gitlab", "gitlab"},
+		{"gitea", "gitea"}, {"sonarqube", "sonarqube"},
+		{"tomcat", "tomcat"}, {"apache", "apache"},
+		{"nginx", "nginx"}, {"iis", "iis"},
+		{"keycloak", "keycloak"}, {"vault", "vault"},
+		{"consul", "consul"}, {"traefik", "traefik"},
+		{"portainer", "portainer"}, {"harbor", "harbor"},
+		{"airflow", "airflow"}, {"jupyter", "jupyter"},
+	} {
+		if strings.Contains(fw, mapping.keyword) {
+			tags[mapping.tag] = true
+		}
+	}
+
+	// Server header from classify.
+	if sv, ok := ev.ServiceVersions["web_server"]; ok {
+		svLow := strings.ToLower(sv)
+		for _, mapping := range []struct{ keyword, tag string }{
+			{"apache", "apache"}, {"nginx", "nginx"}, {"iis", "iis"},
+			{"tomcat", "tomcat"}, {"caddy", "caddy"}, {"lighttpd", "lighttpd"},
+		} {
+			if strings.Contains(svLow, mapping.keyword) {
+				tags[mapping.tag] = true
+			}
+		}
+	}
+
+	// Service identifications from portscan.
+	for _, f := range phaseAFindings {
+		if f.CheckID != finding.CheckPortServiceIdentified {
+			continue
+		}
+		svc, _ := f.Evidence["service"].(string)
+		svcLow := strings.ToLower(svc)
+		for _, mapping := range []struct{ keyword, tag string }{
+			{"elasticsearch", "elasticsearch"}, {"elastic", "elastic"},
+			{"redis", "redis"}, {"mongodb", "mongodb"}, {"mongo", "mongodb"},
+			{"mysql", "mysql"}, {"postgres", "postgres"}, {"mssql", "mssql"},
+			{"couchdb", "couchdb"}, {"memcached", "memcached"},
+			{"rabbitmq", "rabbitmq"}, {"amqp", "rabbitmq"},
+			{"kafka", "kafka"}, {"zookeeper", "zookeeper"},
+			{"docker", "docker"}, {"kubernetes", "kubernetes"},
+			{"prometheus", "prometheus"}, {"grafana", "grafana"},
+			{"jenkins", "jenkins"}, {"gitlab", "gitlab"},
+			{"vault", "vault"}, {"consul", "consul"},
+			{"influxdb", "influxdb"}, {"nats", "nats"},
+			{"etcd", "etcd"}, {"minio", "minio"},
+			{"solr", "solr"}, {"cassandra", "cassandra"},
+			{"oracle", "oracle"}, {"ftp", "ftp"}, {"ssh", "ssh"},
+			{"smtp", "smtp"}, {"ldap", "ldap"},
+		} {
+			if strings.Contains(svcLow, mapping.keyword) {
+				tags[mapping.tag] = true
+			}
+		}
+	}
+
+	// Favicon/product hints.
+	if ev.FaviconProduct != "" {
+		fp := strings.ToLower(ev.FaviconProduct)
+		for _, kw := range []string{"grafana", "jenkins", "gitlab", "kibana", "sonarqube", "portainer", "consul", "vault"} {
+			if strings.Contains(fp, kw) {
+				tags[kw] = true
+			}
+		}
+	}
+
+	if len(tags) <= 1 {
+		// Only generic tags — no specific services identified.
+		// Return nil to run all templates (slower but complete).
+		return nil
+	}
+
+	result := make([]string, 0, len(tags))
+	for t := range tags {
+		result = append(result, t)
+	}
+	return result
+}
+
 func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, openPorts map[int]string, isIP bool) map[string]bool {
 	// ── Detect service categories from Phase A findings ──────────────────
 	var (

@@ -231,10 +231,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		"-bulk-size", "15",     // batch requests
 		"-rate-limit", "50",    // 50 req/s max
 		// Never run denial-of-service or crash templates regardless of mode.
-		// These could disrupt the target service even with authorization.
 		"-etags", "dos,crash,destructive",
 		// Skip templates fully covered by native beacon scanners.
 		"-eid", strings.Join(nativelyExcluded, ","),
+	}
+
+	// Fingerprint-driven tag selection: if Phase A identified specific
+	// services, only run nuclei templates tagged for those services.
+	// This cuts scan time from 4+ minutes (7000 templates) to seconds.
+	if fpTags := TagsFromContext(ctx); len(fpTags) > 0 {
+		args = append(args, "-tags", strings.Join(fpTags, ","))
 	}
 
 	// In surface mode, exclude exploitation/intrusive template tags.
