@@ -1,0 +1,39 @@
+name: tomcat-default-creds
+description: "Tomcat 9 with default manager credentials (tomcat/tomcat)"
+tags: [vulnerable, tomcat, default-creds]
+
+services:
+  tomcat:
+    image: tomcat:9.0
+    ports: ["8080:8080"]
+    environment:
+      # Enable manager app with default creds
+      CATALINA_OPTS: ""
+    command: >
+      sh -c '
+        mkdir -p /usr/local/tomcat/conf &&
+        cat > /usr/local/tomcat/conf/tomcat-users.xml << XMLEOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <tomcat-users>
+          <role rolename="manager-gui"/>
+          <role rolename="admin-gui"/>
+          <user username="tomcat" password="tomcat" roles="manager-gui,admin-gui"/>
+        </tomcat-users>
+      XMLEOF
+        catalina.sh run
+      '
+
+ready:
+  cmd: "curl -sf http://localhost:8080/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-tomcat
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "8080", "--verbose"]
+    expect:
+      min_findings: 1
+
+timeout: 10m

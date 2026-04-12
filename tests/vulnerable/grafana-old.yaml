@@ -1,0 +1,32 @@
+name: grafana-old-version
+description: "Grafana 8.3.0 with CVE-2021-43798 path traversal (pre-auth file read)"
+tags: [vulnerable, grafana, cve]
+
+services:
+  grafana:
+    image: grafana/grafana:8.3.0
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:3000/login >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-grafana-service
+    type: beacon
+    target: localhost:3000
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "3000", "--verbose"]
+    expect:
+      min_findings: 1
+
+  - name: finds-missing-headers
+    type: beacon
+    target: localhost:3000
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "3000", "--verbose"]
+    expect:
+      min_findings: 2
+
+timeout: 5m
