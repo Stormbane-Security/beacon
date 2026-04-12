@@ -110,6 +110,12 @@ func CheckOSVVersions(ctx context.Context, ev playbook.Evidence, asset string) [
 			if len(cveIDs) > 0 {
 				cveStr = strings.Join(cveIDs, ", ")
 			}
+			// Downgrade advisories with no CVE IDs and no severity to info —
+			// these are distro package advisories (ALEA, DSA, USN, etc.) that
+			// are often bug fixes, not security vulnerabilities.
+			if len(cveIDs) == 0 && vuln.Severity == "" {
+				severity = finding.SeverityInfo
+			}
 
 			title := fmt.Sprintf("Known CVE: %s affects %s %s", cveStr, meta.serviceName, meta.version)
 			if len(title) > 120 {
@@ -224,6 +230,8 @@ func mapOSVSeverity(sev string) finding.Severity {
 	case "low":
 		return finding.SeverityLow
 	default:
-		return finding.SeverityHigh // default for unknown severity — version-matched CVE is at least high
+		// Empty or unknown severity — likely a distro advisory (ALEA, DSA, etc.)
+		// without a CVE or CVSS score. Don't inflate to high.
+		return finding.SeverityInfo
 	}
 }
