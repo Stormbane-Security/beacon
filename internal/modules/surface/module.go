@@ -4380,6 +4380,7 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 		{"verdaccio", "verdaccio"}, {"loki", "loki"},
 		{"cadvisor", "cadvisor"}, {"clickhouse", "clickhouse"},
 		{"mattermost", "mattermost"}, {"rocketchat", "rocketchat"},
+		{"haproxy", "haproxy"}, {"squid", "squid"},
 		{"metabase", "metabase"}, {"superset", "superset"},
 	} {
 		if strings.Contains(fw, mapping.keyword) {
