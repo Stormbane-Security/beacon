@@ -2266,6 +2266,27 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// ── Phase B: Remaining scanners (concurrent) ──────────────────────────────
 	phaseBStart := time.Now()
+
+	// Select only scanners relevant to what Phase A discovered.
+	// This is an additional filter on top of playbook selection and scannerSkipReason.
+	assetIsIP := isIPOrLocalhost(asset) || net.ParseIP(strings.Split(asset, ":")[0]) != nil
+	relevantScanners := selectScanners(phaseAFindings, &ev, openPorts, assetIsIP)
+	if progressFn != nil {
+		var skippedByRelevance int
+		for _, name := range plan.Scanners {
+			if !phaseADone[name] && !relevantScanners[name] {
+				skippedByRelevance++
+			}
+		}
+		if skippedByRelevance > 0 {
+			progressFn(module.ProgressEvent{
+				Phase:       "scanner_relevance",
+				ActiveAsset: asset,
+				StatusMsg:   fmt.Sprintf("Phase A relevance filter: %d/%d scanners relevant, %d skipped", len(plan.Scanners)-skippedByRelevance, len(plan.Scanners), skippedByRelevance),
+			})
+		}
+	}
+
 	// httpDependentScanners produce zero useful findings on assets with no web
 	// server. All active HTTP probers are listed here to avoid wasted connections.
 	httpDependentScanners := map[string]bool{
@@ -2310,6 +2331,12 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 		if skipReason != "" {
 			m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
+			continue
+		}
+		// Phase A relevance filter: skip scanners that aren't relevant to
+		// the services/signals discovered during Phase A reconnaissance.
+		if !relevantScanners[name] {
+			m.saveSkipMetric(ctx, scanRunID, asset, name, "phase_a_not_relevant")
 			continue
 		}
 		name, scanner := name, m.scanners[name]
@@ -2694,6 +2721,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 				if skipReason != "" {
 					m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
+					continue
+				}
+				// Phase A relevance filter (same as Phase B main loop).
+				if !relevantScanners[name] {
+					m.saveSkipMetric(ctx, scanRunID, asset, name, "phase_a_not_relevant")
 					continue
 				}
 				name, convScanner := name, convScanner
@@ -3214,11 +3246,15 @@ func incrementNetIP(ip net.IP) {
 // These targets have no subdomains, so subdomain discovery, WHOIS, BGP, DNS
 // AXFR, and passive DNS can all be skipped — saving 1-2s per scan.
 func isIPOrLocalhost(domain string) bool {
-	if domain == "localhost" {
+	// Strip port if present (e.g., "localhost:8080" → "localhost")
+	host := domain
+	if h, _, err := net.SplitHostPort(domain); err == nil {
+		host = h
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 		return true
 	}
-	ip := net.ParseIP(domain)
-	return ip != nil
+	return net.ParseIP(host) != nil
 }
 
 func isValidHostname(s string) bool {
@@ -4218,4 +4254,315 @@ var injectionScannerNames = map[string]bool{
 	"sqli": true, "nosqli": true, "rxss": true, "ssrf": true,
 	"cmdinj": true, "ssti": true, "xxe": true, "pathtraversal": true,
 	"pdfssrf": true, "elinjection": true,
+}
+
+// ── Phase B relevance filtering ─────────────────────────────────────────────
+// selectScanners analyses Phase A findings and classify evidence to determine
+// which Phase B scanners are relevant to the target. Returns a set of scanner
+// names that should run. Scanners NOT in this set can be skipped — they would
+// produce zero findings or waste time probing services that don't exist.
+//
+// This is an ADDITIONAL filter on top of playbook-selected scanners and the
+// existing scannerSkipReason checks (noHTTP, WAF, service-class). If a
+// playbook says "run jwt" but Phase A found no web server, this filter skips
+// it.
+func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, openPorts map[int]string, isIP bool) map[string]bool {
+	// ── Detect service categories from Phase A findings ──────────────────
+	var (
+		hasHTTP       bool
+		hasSSH        bool
+		hasDB         bool
+		hasMQ         bool
+		hasDocker     bool
+		hasK8s        bool
+		hasAI         bool
+		hasWeb3       bool
+		hasCICD       bool
+		hasMonitoring bool
+		hasMail       bool
+	)
+
+	// HTTP: classify evidence already tells us (StatusCode > 0 means HTTP responded).
+	hasHTTP = ev.StatusCode > 0
+
+	// Analyse Phase A check IDs for specific service signals.
+	for _, f := range phaseAFindings {
+		cid := string(f.CheckID)
+		switch {
+		// SSH
+		case cid == "port.ssh_exposed":
+			hasSSH = true
+
+		// Databases
+		case cid == "port.database_exposed",
+			cid == "port.redis_unauthenticated",
+			cid == "port.elasticsearch_unauthenticated",
+			cid == "port.couchdb_unauthenticated",
+			cid == "port.memcached_unauthenticated",
+			cid == "port.influxdb_exposed":
+			hasDB = true
+
+		// Message queues
+		case cid == "port.amqp_exposed",
+			cid == "port.kafka_exposed",
+			cid == "port.zookeeper_exposed",
+			cid == "port.mqtt_exposed":
+			hasMQ = true
+
+		// Docker / container
+		case cid == "port.docker_unauthenticated":
+			hasDocker = true
+
+		// Kubernetes
+		case cid == "port.k8s_api_exposed",
+			cid == "port.kubelet_unauthenticated",
+			cid == "port.k8s_anonymous_rbac",
+			cid == "port.k8s_secrets_exposed",
+			cid == "port.k8s_istio_admin_exposed":
+			hasK8s = true
+
+		// AI / LLM
+		case cid == "port.ollama_exposed",
+			cid == "port.gradio_exposed":
+			hasAI = true
+
+		// Monitoring
+		case cid == "port.prometheus_unauthenticated",
+			cid == "port.splunk_mgmt_exposed":
+			hasMonitoring = true
+
+		// CI/CD
+		case cid == "port.jboss_management_exposed",
+			cid == "port.coldfusion_admin_exposed":
+			hasCICD = true
+
+		// Vault / infra
+		case cid == "port.vault_exposed",
+			cid == "port.vault_unsealed_no_auth":
+			hasDocker = true // infrastructure — same bucket
+		}
+	}
+
+	// Evidence-driven signals.
+	if len(ev.AIEndpoints) > 0 || ev.LLMProvider != "" {
+		hasAI = true
+	}
+	if len(ev.Web3Signals) > 0 || len(ev.ContractAddresses) > 0 {
+		hasWeb3 = true
+	}
+	if ev.AuthSystem != "" {
+		// Auth system presence means auth scanners are relevant.
+	}
+	if ev.IsKubernetes {
+		hasK8s = true
+	}
+	if len(ev.MXRecords) > 0 || ev.MXProvider != "" {
+		hasMail = true
+	}
+
+	// FaviconProduct-based signals.
+	if ev.FaviconProduct != "" {
+		fp := strings.ToLower(ev.FaviconProduct)
+		switch {
+		case strings.Contains(fp, "jenkins"), strings.Contains(fp, "gitlab"),
+			strings.Contains(fp, "teamcity"), strings.Contains(fp, "bitbucket"):
+			hasCICD = true
+		case strings.Contains(fp, "grafana"), strings.Contains(fp, "kibana"),
+			strings.Contains(fp, "prometheus"), strings.Contains(fp, "jaeger"):
+			hasMonitoring = true
+		}
+	}
+
+	// Port-based service detection from openPorts map.
+	for port, svc := range openPorts {
+		svcLower := strings.ToLower(svc)
+		switch {
+		case port == 22 || strings.Contains(svcLower, "ssh"):
+			hasSSH = true
+		case port == 3306 || port == 5432 || port == 1433 || port == 1521 ||
+			port == 27017 || port == 6379 || port == 9200 || port == 5984 ||
+			port == 11211 || port == 8086:
+			hasDB = true
+		case port == 5672 || port == 15672 || port == 9092 || port == 2181 ||
+			port == 1883 || port == 4222:
+			hasMQ = true
+		case port == 2375 || port == 2376:
+			hasDocker = true
+		case port == 6443 || port == 10250 || port == 10255:
+			hasK8s = true
+		case port == 11434 || port == 7860:
+			hasAI = true
+		case port == 9090 || port == 3000 || port == 5601 || port == 16686:
+			hasMonitoring = true // Prometheus, Grafana, Kibana, Jaeger
+		case port == 25 || port == 587 || port == 465 || port == 143 || port == 993:
+			hasMail = true
+		case strings.Contains(svcLower, "jenkins") || strings.Contains(svcLower, "gitlab"):
+			hasCICD = true
+		}
+		// Suppress unused variable warnings.
+		_ = hasSSH
+		_ = hasMQ
+	}
+
+	// ── Build the relevant scanner set ──────────────────────────────────
+	relevant := make(map[string]bool, 64)
+
+	// Phase A scanners — always relevant (they already ran, but mark them
+	// so they pass through any "is this relevant?" check).
+	for _, name := range []string{"portscan", "wafdetect", "aidetect", "authsurface"} {
+		relevant[name] = true
+	}
+
+	// Always run (truly universal, no service dependency).
+	for _, name := range []string{"tls", "testssl", "dns", "nuclei"} {
+		relevant[name] = true
+	}
+
+	// Domain-only scanners (skip for bare IPs).
+	if !isIP {
+		for _, name := range []string{
+			"assetintel", "dorks", "hibp", "favicon", "ctlog", "asnmap",
+			"harvester", "typosquat", "whois", "passivedns", "historicalurls",
+			"takeover", "email", "bgp",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Basic HTTP — lightweight checks for any web server.
+	if hasHTTP {
+		for _, name := range []string{
+			"secheaders", "cors", "cookie", "wellknown", "screenshot",
+			"httpmethods", "clickjacking", "hostheader", "webcontent",
+			"exposedfiles", "robotsmap", "errordisclosure", "ratelimit",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Web application — deeper checks only if a real web app is detected.
+	// A default "Welcome to nginx!" page is NOT a web app. We need evidence
+	// of dynamic content: framework, responding paths, cookies, auth, or JS.
+	hasWebApp := hasHTTP && (ev.Framework != "" ||
+		len(ev.RespondingPaths) > 0 ||
+		len(ev.CookieNames) > 0 ||
+		ev.AuthSystem != "" ||
+		ev.AuthScheme != "")
+	if hasWebApp {
+		for _, name := range []string{
+			"crawler", "swagger", "jsendpoints", "apiversions",
+			"depconf", "cspaudit", "dlp", "autoprobe", "cacheprobe",
+			"h2c", "http2", "verbtamper", "vhost", "smuggling",
+			"cms-plugins",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Specialized HTTP — only when specific tech detected.
+	frameworkLower := strings.ToLower(ev.Framework)
+	if strings.Contains(frameworkLower, "graphql") {
+		relevant["graphql"] = true
+	}
+	if strings.Contains(frameworkLower, "grpc") {
+		relevant["grpcreflect"] = true
+	}
+	if ev.IsReverseProxy || ev.InfraLayer != "" {
+		relevant["gateway"] = true
+		relevant["cdnbypass"] = true
+		relevant["proxychain"] = true
+	}
+	if ev.HTTP2Enabled {
+		relevant["websocket"] = true
+		relevant["wsfuzz"] = true
+	}
+	if len(ev.RespondingPaths) > 0 || ev.AuthScheme != "" {
+		relevant["apischema"] = true
+	}
+
+	// Injection scanners — only if web server has parameters or forms
+	// (ev.RespondingPaths is a proxy for "there are endpoints to fuzz").
+	if hasHTTP && (len(ev.RespondingPaths) > 0 || ev.Framework != "") {
+		for _, name := range []string{
+			"sqli", "nosqli", "ssti", "crlf", "openredir", "rxss",
+			"xxe", "hpp", "ssrf", "pathtraversal", "cmdinj",
+			"elinjection", "pdfssrf", "apifuzz", "deserial",
+			"domxss", "fileupload", "secondorder", "protopollution",
+			"redos", "racecondition",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Auth scanners — only if auth system detected or login form found.
+	if ev.AuthSystem != "" || ev.AuthScheme != "" || len(ev.CookieNames) > 0 {
+		for _, name := range []string{
+			"jwt", "oauth", "saml", "authfuzz", "iam", "privesc",
+			"idor", "accesscontrol", "statemachine", "csrf", "okta",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// AI/ML scanners — only if AI endpoint detected.
+	if hasAI {
+		for _, name := range []string{"aiinfra", "aillm", "aimodelsec"} {
+			relevant[name] = true
+		}
+	}
+
+	// Web3 scanners — only if blockchain/web3 detected.
+	if hasWeb3 {
+		for _, name := range []string{
+			"chainnode", "web3detect", "web3auth", "web3defi", "contractscan",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// CI/CD scanners — only if CI/CD panel detected.
+	if hasCICD {
+		for _, name := range []string{
+			"ghactions", "gitlab", "jenkins", "bitbucket", "teamcity", "circleci",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Docker/K8s scanners — only if container infra detected.
+	if hasDocker || hasK8s {
+		for _, name := range []string{"containerimage", "onprem"} {
+			relevant[name] = true
+		}
+	}
+
+	// Monitoring-specific scanners.
+	if hasMonitoring {
+		for _, name := range []string{"depconf"} {
+			relevant[name] = true
+		}
+	}
+
+	// DNS/Email scanners — only for domain scans, not bare IPs.
+	if !isIP {
+		for _, name := range []string{
+			"email", "takeover", "typosquat", "whois", "bgp",
+			"subfinder",
+		} {
+			relevant[name] = true
+		}
+	}
+
+	// Mail-specific.
+	if hasMail {
+		relevant["email"] = true
+	}
+
+	// Database-specific — chain engine handles most of these, but ensure
+	// nuclei (already always-on) covers DB CVEs.
+	if hasDB {
+		relevant["nuclei"] = true
+	}
+
+	return relevant
 }
