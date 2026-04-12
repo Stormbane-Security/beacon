@@ -143,10 +143,27 @@ func (s *Scanner) Name() string { return scannerName }
 // containing hyphens at label boundaries, non-alnum characters, or sequences
 // that could be interpreted as CLI flags (e.g. "--config").
 func isValidHostname(s string) bool {
-	if len(s) == 0 || len(s) > 253 {
+	// Strip port suffix (e.g. "localhost:8080" → "localhost") before
+	// validating the hostname portion. The port is valid for nuclei targets.
+	host := s
+	if idx := strings.LastIndex(s, ":"); idx > 0 {
+		portPart := s[idx+1:]
+		allDigits := true
+		for _, c := range portPart {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			host = s[:idx]
+		}
+	}
+
+	if len(host) == 0 || len(host) > 253 {
 		return false
 	}
-	for _, label := range strings.Split(s, ".") {
+	for _, label := range strings.Split(host, ".") {
 		if len(label) == 0 || len(label) > 63 {
 			return false
 		}
