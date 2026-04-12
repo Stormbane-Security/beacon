@@ -1,0 +1,30 @@
+name: catchall-spa-no-false-cves
+description: >
+  SPA that returns the same HTML for every path (try_files → index.html).
+  This must NOT produce CVE findings or exposed file alerts. Catches
+  the spacelift.io false positive class where SPA catch-all routes
+  return 200 for /actuator/heapdump, /.env, etc.
+tags: [falsepositive, catchall, spa, regression]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./catchall-spa/html:/usr/share/nginx/html:ro
+      - ./catchall-spa/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: no-cve-false-positives-on-spa
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      max_findings: 0
+
+timeout: 5m
