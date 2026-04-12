@@ -1694,9 +1694,13 @@ func detectWordPress(ctx context.Context, host string, port int, _ string, makeF
 		}
 	}
 	// Fall back to probing wp-login.php directly.
+	// Require HTML response with actual login form elements — JSON APIs
+	// (like npm registries) may contain "wp-login" as a package name.
 	if loginBody, loginOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/wp-login.php"); loginOK {
-		if strings.Contains(strings.ToLower(loginBody), "wordpress") ||
-			strings.Contains(strings.ToLower(loginBody), "wp-login") {
+		loginLow := strings.ToLower(loginBody)
+		isHTML := strings.Contains(loginLow, "<form") || strings.Contains(loginLow, "<html")
+		hasWPForm := strings.Contains(loginLow, "wp-submit") || strings.Contains(loginLow, "loginform")
+		if isHTML && hasWPForm {
 			return wpFinding(host, port, useTLS, makeF)
 		}
 	}
