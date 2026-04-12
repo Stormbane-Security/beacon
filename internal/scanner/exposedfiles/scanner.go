@@ -3614,7 +3614,13 @@ func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset strin
 	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 300 && resp.StatusCode < 400) {
 		return nil
 	}
-	bLower := strings.ToLower(string(b))
+	bodyStr := string(b)
+	bLower := strings.ToLower(bodyStr)
+	// Reject JSON/XML API responses — these are not Telerik.
+	trimmed := strings.TrimSpace(bodyStr)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "<?xml") || strings.HasPrefix(trimmed, "<html") {
+		return nil
+	}
 	if !strings.Contains(bLower, "telerik") && !strings.Contains(bLower, "radupload") &&
 		!strings.Contains(bLower, "fileinfo") && !strings.Contains(bLower, "raupostback") {
 		return nil
@@ -6096,6 +6102,14 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 			strings.Contains(bodyLow, "sap ag") || strings.Contains(bodyLow, "sap se") ||
 			strings.Contains(bodyLow, "sap portal") || strings.Contains(bodyLow, "sap logon") ||
 			strings.Contains(bodyLow, "/sap/bc/") || strings.Contains(bodyLow, "sapui5")
+		// Reject if known non-SAP service (catch-all returning their admin page).
+		isNotSAP := strings.Contains(bodyLow, "solr") || strings.Contains(bodyLow, "elasticsearch") ||
+			strings.Contains(bodyLow, "sonarqube") || strings.Contains(bodyLow, "grafana") ||
+			strings.Contains(bodyLow, "jenkins") || strings.Contains(bodyLow, "adminer") ||
+			strings.Contains(bodyLow, "nextcloud") || strings.Contains(bodyLow, "portainer")
+		if isNotSAP {
+			continue
+		}
 		if hasSAPHeader || hasSAPBody {
 			isSAP = true
 			break

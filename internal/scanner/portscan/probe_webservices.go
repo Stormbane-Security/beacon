@@ -2093,10 +2093,10 @@ func detectGhost(ctx context.Context, host string, port int, _ string, makeF fin
 		strings.Contains(bodyLow, "ghost-portal")
 
 	if !isGhost {
-		// Try the Ghost API endpoint.
+		// Try the Ghost API endpoint — require Ghost-specific JSON structure.
 		if apiBody, apiOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/ghost/api/v4/admin/site/"); apiOK {
-			if strings.Contains(strings.ToLower(apiBody), "ghost") ||
-				strings.Contains(apiBody, "\"title\"") {
+			apiLow := strings.ToLower(apiBody)
+			if strings.Contains(apiLow, "\"ghost\"") && strings.Contains(apiLow, "\"site\"") {
 				isGhost = true
 			}
 		}
