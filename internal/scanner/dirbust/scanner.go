@@ -509,6 +509,18 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string, baseline *sca
 			if resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 308 {
 				loc := resp.Header.Get("Location")
 				if loc != "" {
+					// Redirect to a login/auth page = the path doesn't
+					// exist, the app just catches all unauthed requests.
+					locLow := strings.ToLower(loc)
+					if strings.Contains(locLow, "/login") ||
+						strings.Contains(locLow, "/signin") ||
+						strings.Contains(locLow, "/auth") ||
+						strings.Contains(locLow, "/noauth/") ||
+						strings.Contains(locLow, "/sso") ||
+						strings.Contains(locLow, "/cas/") {
+						return nil, false
+					}
+
 					followReq, err := http.NewRequestWithContext(ctx, http.MethodHead, loc, nil)
 					if err == nil {
 						followResp, err := s.client.Do(followReq)
